@@ -1540,6 +1540,7 @@ def run():
                     data_gen = DLRMDataLoader(args) 
 
                 for j, inputBatch in enumerate(train_ld):
+                    
                     if j == 0 and args.save_onnx:
                         X_onnx, lS_o_onnx, lS_i_onnx, _, _, _ = unpack_batch(inputBatch)
 
