@@ -108,6 +108,9 @@ with warnings.catch_warnings():
 # import torch.nn.functional as Functional
 # from torch.nn.parameter import Parameter
 
+sys.path.append("../PIM-DeepRecSys")
+from DLRMDataLoader import DLRMDataLoader
+
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
 
@@ -1008,6 +1011,26 @@ def run():
     parser.add_argument("--lr-decay-start-step", type=int, default=0)
     parser.add_argument("--lr-num-decay-steps", type=int, default=0)
 
+    #deep rec sys
+    parser.add_argument("--deeprecsys-load-gen", type=bool, default=False)
+    parser.add_argument("--avg_arrival_rate", type=int, default=10)
+    parser.add_argument("--batch_size_distribution", type=str, default="normal")
+    parser.add_argument("--avg_mini_batch_size", type=int, default=256)
+    parser.add_argument("--max_mini_batch_size", type=int, default=256)
+    parser.add_argument("--var_mini_batch_size", type=int, default=32)
+    parser.add_argument("--sub_task_batch_size", type=int, default=32)
+    parser.add_argument("--min_arr_range", type=int, default=1)
+    parser.add_argument("--max_arr_range", type=int, default=100)
+    parser.add_argument("--arr_steps", type=int, default=20)
+    parser.add_argument("--tune_batch_qps", type=bool, default=False)
+    parser.add_argument("--tune_accel_qps", type=bool, default=False)
+    parser.add_argument("--batch_configs", type=str, default="32-64-128-256-512-1024")
+    parser.add_argument("--stable_region", type=float, default=0.1)
+    parser.add_argument("--sched_timeout", type=int, default=100)
+    parser.add_argument("--use_accel", type=bool, default=False)
+    parser.add_argument("--model_accel", type=bool, default=False)
+    parser.add_argument("--accel_configs", type=str, default="128-256-512")
+
     global args
     global nbatches
     global nbatches_test
@@ -1033,6 +1056,10 @@ def run():
         if args.md_flag:
             sys.exit(
                 "ERROR: 4 and 8-bit quantization with mixed dimensions is not supported"
+            )
+        if args.use_gpu:
+            sys.exit(
+                "ERROR: 4 and 8-bit quantization on GPU is not supported"
             )
 
     ### some basic setup ###
@@ -1504,6 +1531,13 @@ def run():
 
                 if args.mlperf_logging:
                     previous_iteration_time = None
+                
+                # generate new data from deeprecsys
+                DEBUG_PRINT = 0
+                data_gen = None
+                if args.deeprecsys_load_gen:
+                    print("Using data from deeprecsys load generator")
+                    data_gen = DLRMDataLoader(args) 
 
                 for j, inputBatch in enumerate(train_ld):
                     if j == 0 and args.save_onnx:
@@ -1513,6 +1547,41 @@ def run():
                         continue
 
                     X, lS_o, lS_i, T, W, CBPP = unpack_batch(inputBatch)
+
+                    if args.deeprecsys_load_gen:
+
+                        # deeprecsys load generator data
+                        dataloader_res = data_gen.get_next()
+                        if dataloader_res == None:
+                            break
+
+                        if DEBUG_PRINT:
+                            (batch_id, X_dl, lS_o_dl, lS_i_dl, T_dl) = dataloader_res
+                            print("Printing actual value of X: ")
+                            print(f"X actual: {X[0:min(len(X), 5)]}, size: {len(X)}")
+                            print(f"generated: {X_dl}, size: {len(X_dl)}")
+                            print(f"Inner list size is actual: {len(X[0])}, generated: {len(X_dl[0])}")
+
+                            print("\nPrinting lS_o: ")
+                            print(f"lS_o actual: {lS_o[0:min(len(lS_o), 5)]}, size: {len(lS_o)}")
+                            print(f"generated: {lS_o_dl}, size: {len(lS_o_dl)}")
+                            print(f"Inner list size is actual: {len(lS_o[0])}, generated: {len(lS_o_dl[0])}")
+
+                            print("\nPrinting lS_i: ")
+                            print(f"lS_i actual: {lS_i[0:min(len(lS_i), 5)]}, size: {len(lS_i)}")
+                            print(f"generated: {lS_i_dl}, size: {len(lS_i_dl)}")
+                            print(f"Inner list size is actual: {len(lS_i[0])}, generated: {len(lS_i_dl[0])}")
+
+                            print("\nPrinting T: ")
+                            print(f"T actual: {T[0:min(len(T), 5)]}, size: {len(T)}")
+                            print(f"generated: {T_dl[0:min(len(T_dl), 5)]}, size: {len(T_dl)}")
+                            print(f"Inner list size is actual: {len(T[0])}, generated: {len(T_dl[0])}")
+
+                        X    = dataloader_res[1]
+                        lS_o = dataloader_res[2]
+                        lS_i = dataloader_res[3]
+                        T    = dataloader_res[4]
+
 
                     if args.mlperf_logging:
                         current_time = time_wrap(use_gpu)
@@ -1733,6 +1802,11 @@ def run():
                         metadata={mlperf_logger.constants.FIRST_EPOCH_NUM: (k + 1)},
                     )
                 k += 1  # nepochs
+            
+            #terminate the deeprecsys generator
+            if args.deeprecsys_load_gen:
+                data_gen.kill_generator()
+
             if args.mlperf_logging and best_auc_test <= args.mlperf_auc_threshold:
                 mlperf_logger.barrier()
                 mlperf_logger.log_end(
