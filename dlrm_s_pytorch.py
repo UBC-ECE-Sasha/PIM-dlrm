@@ -1014,6 +1014,7 @@ def run():
     #deep rec sys
     parser.add_argument("--deeprecsys-load-gen", type=bool, default=False)
     parser.add_argument("--avg_arrival_rate", type=int, default=10)
+    parser.add_argument("--inference_engines", type=int, default=1)
     parser.add_argument("--batch_size_distribution", type=str, default="normal")
     parser.add_argument("--avg_mini_batch_size", type=int, default=256)
     parser.add_argument("--max_mini_batch_size", type=int, default=256)
