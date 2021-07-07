@@ -21,4 +21,4 @@ python dlrm_s_pytorch.py     \
 --num-indices-per-lookup-fixed=True   \
 --print-freq=1    \
 --print-time  \
---deeprecsys-load-gen=True
+--deeprecsys_load_gen \

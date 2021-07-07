@@ -1012,7 +1012,7 @@ def run():
     parser.add_argument("--lr-num-decay-steps", type=int, default=0)
 
     #deep rec sys
-    parser.add_argument("--deeprecsys-load-gen", type=bool, default=False)
+    parser.add_argument("--deeprecsys_load_gen", action="store_true", default=False)
     parser.add_argument("--avg_arrival_rate", type=int, default=10)
     parser.add_argument("--inference_engines", type=int, default=1)
     parser.add_argument("--batch_size_distribution", type=str, default="normal")
