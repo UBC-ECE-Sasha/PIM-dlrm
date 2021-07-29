@@ -1,12 +1,3 @@
-
-NUM_ROWS=1200
-TABLES=$NUM_ROWS
-for i in {1..12}
-do 
-    TABLES=$TABLES"-"$NUM_ROWS 
-done
-
-
 #NOTE: --mini-batch-size cannot be changed since 32 is the size that the deeprecsys requests produce
 
 python dlrm_s_pytorch.py     \
