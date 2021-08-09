@@ -411,12 +411,12 @@ class DLRM_Net(nn.Module):
             # happening vertically across 0 axis, resulting in a row vector
             # E = emb_l[k]
 
-            if v_W_l[k] is not None:
+           """  if v_W_l[k] is not None:
                 per_sample_weights = v_W_l[k].gather(0, sparse_index_group_batch)
-            else:
-                per_sample_weights = None
+            else: """
+            per_sample_weights = None
 
-            if self.quantize_emb:
+            """ if self.quantize_emb:
                 s1 = self.emb_l_q[k].element_size() * self.emb_l_q[k].nelement()
                 s2 = self.emb_l_q[k].element_size() * self.emb_l_q[k].nelement()
                 print("quantized emb sizes:", s1, s2)
@@ -437,15 +437,15 @@ class DLRM_Net(nn.Module):
                     )
 
                 ly.append(QV)
-            else:
-                E = emb_l[k]
-                V = E(
-                    sparse_index_group_batch,
-                    sparse_offset_group_batch,
-                    per_sample_weights=per_sample_weights,
-                )
+            else: """
+            E = emb_l[k]
+            V = E(
+                sparse_index_group_batch,
+                sparse_offset_group_batch,
+                per_sample_weights=per_sample_weights,
+            )
 
-                ly.append(V)
+            ly.append(V)
 
         # print(ly)
         return ly
