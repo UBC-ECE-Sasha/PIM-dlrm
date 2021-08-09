@@ -45,3 +45,4 @@ python dlrm_s_pytorch.py     \
 --print-freq=1    \
 --print-time  \
 --deeprecsys_load_gen \
+--inference-only \
