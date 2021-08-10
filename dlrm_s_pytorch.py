@@ -113,6 +113,38 @@ from DLRMDataLoader import DLRMDataLoader
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
+#Profiling decorators
+def inference_timer(method):
+    times = []
+    
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+       
+        times.append(te-ts)
+        if (len(times)%nbatches==0):
+            print('%r  this: %2.2f ms average:%2.2f ms' % \
+                ("inference cycle latency", (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+
+        return result
+    return timed
+
+def embedding_timer(method):
+    times = []
+    
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+       
+        times.append(te-ts)
+        if (len(times)%nbatches==0):
+            print('%r  this: %2.2f ms average: %2.2f ms' % \
+                ("embedding layer latency", (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+
+        return result
+    return timed
 
 def time_wrap(use_gpu):
     if use_gpu:
@@ -396,6 +428,7 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return layers(x)
 
+    @embedding_timer
     def apply_emb(self, lS_o, lS_i, emb_l, v_W_l):
         # WARNING: notice that we are processing the batch at once. We implicitly
         # assume that the data is laid out such that:
@@ -508,6 +541,7 @@ class DLRM_Net(nn.Module):
 
         return R
 
+    @inference_timer
     def forward(self, dense_x, lS_o, lS_i):
         if ext_dist.my_size > 1:
             # multi-node multi-device run
