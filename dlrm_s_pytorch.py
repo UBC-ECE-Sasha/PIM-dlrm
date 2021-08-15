@@ -767,14 +767,57 @@ def inference(
         scores = []
         targets = []
 
+    DEBUG_PRINT = 0
+    data_gen = None
+    if args.deeprecsys_load_gen:
+        print("Using data from deeprecsys load generator")
+        data_gen = DLRMDataLoader(args) 
+
     for i, testBatch in enumerate(test_ld):
         # early exit if nbatches was set by the user and was exceeded
+
         if nbatches > 0 and i >= nbatches:
             break
 
         X_test, lS_o_test, lS_i_test, T_test, W_test, CBPP_test = unpack_batch(
             testBatch
         )
+
+        if args.deeprecsys_load_gen:
+
+            # deeprecsys load generator data
+            dataloader_res = data_gen.get_next()
+            if dataloader_res == None:
+                break
+
+            if DEBUG_PRINT:
+                print(f"\n\nIteration {i}:")
+                (batch_id, X_dl, lS_o_dl, lS_i_dl, T_dl) = dataloader_res
+                print("Printing actual value of X: ")
+                print(f"X actual: {X_test[0:min(len(X_test), 5)]}, size: {len(X_test)}")
+                print(f"generated: {X_dl}, size: {len(X_dl)}")
+                print(f"Inner list size is actual: {len(X_test[0])}, generated: {len(X_dl[0])}")
+
+                print("\nPrinting lS_o: ")
+                print(f"lS_o actual: {lS_o_test[0:min(len(lS_o_test), 5)]}, size: {len(lS_o_test)}")
+                print(f"generated: {lS_o_dl}, size: {len(lS_o_dl)}")
+                print(f"Inner list size is actual: {len(lS_o_test[0])}, generated: {len(lS_o_dl[0])}")
+
+                print("\nPrinting lS_i: ")
+                print(f"lS_i actual: {lS_i_test[0:min(len(lS_i_test), 5)]}, size: {len(lS_i_test)}")
+                print(f"generated: {lS_i_dl}, size: {len(lS_i_dl)}")
+                print(f"Inner list size is actual: {len(lS_i_test[0])}, generated: {len(lS_i_dl[0])}")
+
+                print("\nPrinting T: ")
+                print(f"T actual: {T_test[0:min(len(T_test), 5)]}, size: {len(T_test)}")
+                print(f"generated: {T_dl[0:min(len(T_dl), 5)]}, size: {len(T_dl)}")
+                print(f"Inner list size is actual: {len(T_test[0])}, generated: {len(T_dl[0])}")
+
+            X_test    = dataloader_res[1]
+            lS_o_test = dataloader_res[2]
+            lS_i_test = dataloader_res[3]
+            T_test    = dataloader_res[4]
+
 
         # Skip the batch if batch size not multiple of total ranks
         if ext_dist.my_size > 1 and X_test.size(0) % ext_dist.my_size != 0:
@@ -890,6 +933,11 @@ def inference(
             ),
             flush=True,
         )
+
+    #terminate the deeprecsys generator
+    if args.deeprecsys_load_gen:
+        data_gen.kill_generator()
+
     return model_metrics_dict, is_best
 
 
@@ -1583,7 +1631,6 @@ def run():
                         lS_o = dataloader_res[2]
                         lS_i = dataloader_res[3]
                         T    = dataloader_res[4]
-
 
                     if args.mlperf_logging:
                         current_time = time_wrap(use_gpu)
