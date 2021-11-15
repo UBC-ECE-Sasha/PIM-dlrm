@@ -479,6 +479,7 @@ class DLRM_Net(nn.Module):
                 sparse_index_group_batch,
                 sparse_offset_group_batch,
                 per_sample_weights=per_sample_weights,
+                table_no=k
             )
 
             ly.append(V)
@@ -1146,6 +1147,8 @@ def run():
             )
 
     ### some basic setup ###
+    torch.set_num_threads(1) # THREAD TEST
+    torch.set_num_interop_threads(2) # THREAD TEST
     np.random.seed(args.numpy_rand_seed)
     np.set_printoptions(precision=args.print_precision)
     torch.set_printoptions(precision=args.print_precision)
