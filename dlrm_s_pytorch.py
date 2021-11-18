@@ -111,6 +111,9 @@ with warnings.catch_warnings():
 sys.path.append("../PIM-DeepRecSys")
 from DLRMDataLoader import DLRMDataLoader
 
+# Multithreading for PIM
+import threading
+
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
 #Profiling decorators
@@ -224,6 +227,18 @@ class LRPolicyScheduler(_LRScheduler):
                 # do not adjust
                 lr = self.base_lrs
         return lr
+
+### CLASS FOR THREADING PIM ###
+class QueryThread (threading.Thread):
+        def __init__(self, sparse_index_group_batch, sparse_offset_group_batch, per_sample_weights, table_no, E):
+            threading.Thread.__init__(self)
+            self.sparse_index_group_batch = sparse_index_group_batch
+            self.sparse_offset_group_batch = sparse_offset_group_batch
+            self.per_sample_weights = per_sample_weights
+            self.table_no = table_no
+            self.E = E
+        def run(self):
+            self.result = self.E(self.sparse_index_group_batch, self.sparse_offset_group_batch, per_sample_weights=self.per_sample_weights, table_no=self.table_no)
 
 
 ### define dlrm in PyTorch ###
@@ -438,6 +453,7 @@ class DLRM_Net(nn.Module):
         # 3. for a list of embedding tables there is a list of batched lookups
 
         ly = []
+        query_threads = []
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
 
@@ -475,14 +491,19 @@ class DLRM_Net(nn.Module):
                 ly.append(QV)
             else: """
             E = emb_l[k]
-            V = E(
-                sparse_index_group_batch,
-                sparse_offset_group_batch,
-                per_sample_weights=per_sample_weights,
-                table_no=k
-            )
+            # V = E(
+            #     sparse_index_group_batch,
+            #     sparse_offset_group_batch,
+            #     per_sample_weights=per_sample_weights,
+            #     table_no=k
+            # )
+            query_threads.append(QueryThread(sparse_index_group_batch, sparse_offset_group_batch, per_sample_weights, k, E))
+            query_threads[k].start()
 
-            ly.append(V)
+        for thread in query_threads:
+            thread.join();
+            print(thread.result)
+            ly.append(thread.result)
 
         # print(ly)
         return ly
@@ -1148,7 +1169,7 @@ def run():
 
     ### some basic setup ###
     torch.set_num_threads(1) # THREAD TEST
-    torch.set_num_interop_threads(2) # THREAD TEST
+    torch.set_num_interop_threads(1) # THREAD TEST
     np.random.seed(args.numpy_rand_seed)
     np.set_printoptions(precision=args.print_precision)
     torch.set_printoptions(precision=args.print_precision)
