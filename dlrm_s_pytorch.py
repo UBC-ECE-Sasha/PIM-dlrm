@@ -123,9 +123,8 @@ def inference_timer(method):
         te = time.time()
        
         times.append(te-ts)
-        if (len(times)%nbatches==0):
-            print('%r  this: %2.2f ms average:%2.2f ms' % \
-                ("inference cycle latency", (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+        print('%r  this: %2.2f ms, average:%2.2f ms' % \
+            ("inference cycle latency", (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
 
         return result
     return timed
@@ -139,9 +138,8 @@ def embedding_timer(method):
         te = time.time()
        
         times.append(te-ts)
-        if (len(times)%nbatches==0):
-            print('%r  this: %2.2f ms average: %2.2f ms' % \
-                ("embedding layer latency", (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+        print('%r  this: %2.2f ms, average: %2.2f ms' % \
+            ("embedding layer latency", (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
 
         return result
     return timed
