@@ -411,7 +411,7 @@ class DLRM_Net(nn.Module):
             # happening vertically across 0 axis, resulting in a row vector
             # E = emb_l[k]
 
-           """  if v_W_l[k] is not None:
+            """ if v_W_l[k] is not None:
                 per_sample_weights = v_W_l[k].gather(0, sparse_index_group_batch)
             else: """
             per_sample_weights = None
