@@ -113,6 +113,7 @@ from DLRMDataLoader import DLRMDataLoader
 
 # Multithreading for PIM
 import threading
+import os
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
@@ -452,9 +453,14 @@ class DLRM_Net(nn.Module):
         # 2. for each embedding the lookups are further organized into a batch
         # 3. for a list of embedding tables there is a list of batched lookups
 
+        print("Starting OS affinity: ", os.sched_getaffinity(0))
+        # Set affinity to test case
+        os.sched_setaffinity(0, {0, 1})
+        print("Current test OS affinity: ", os.sched_getaffinity(0))
+
         ly = []
         query_threads = []
-        emb_lookup_start_t = time.time()
+        emb_lookup_start_t = time.time() * 1000
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
 
@@ -509,7 +515,7 @@ class DLRM_Net(nn.Module):
             ly.append(thread.result)
 
         # Output time elasped
-        print("Python apply_emb() time elasped: ", time.time() - emb_lookup_start_t, " seconds")
+        print("Python apply_emb() time elasped: ", time.time() * 1000 - emb_lookup_start_t, " ms")
 
         # print(ly)
         return ly
