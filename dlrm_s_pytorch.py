@@ -228,7 +228,7 @@ class LRPolicyScheduler(_LRScheduler):
                 lr = self.base_lrs
         return lr
 
-### CLASS FOR THREADING PIM ###
+# Threading class for embedding lookup
 class QueryThread (threading.Thread):
         def __init__(self, sparse_index_group_batch, sparse_offset_group_batch, per_sample_weights, table_no, E):
             threading.Thread.__init__(self)
@@ -454,6 +454,7 @@ class DLRM_Net(nn.Module):
 
         ly = []
         query_threads = []
+        emb_lookup_start_t = time.time()
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
 
@@ -497,6 +498,8 @@ class DLRM_Net(nn.Module):
             #     per_sample_weights=per_sample_weights,
             #     table_no=k
             # )
+
+            # Manual threading for embedding lookup
             query_threads.append(QueryThread(sparse_index_group_batch, sparse_offset_group_batch, per_sample_weights, k, E))
             query_threads[k].start()
 
@@ -504,6 +507,9 @@ class DLRM_Net(nn.Module):
             thread.join();
             print(thread.result)
             ly.append(thread.result)
+
+        # Output time elasped
+        print("Python apply_emb() time elasped: ", time.time() - emb_lookup_start_t, " seconds")
 
         # print(ly)
         return ly
