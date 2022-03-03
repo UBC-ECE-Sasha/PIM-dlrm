@@ -1,3 +1,12 @@
+# To run with Kaggle model:		
+# python ../../../dlrm/dlrm_dpu_pytorch.py --arch-sparse-feature-size=16 		
+# --arch-mlp-bot="13-512-256-64-16" --arch-mlp-top="512-256-1" --data-ge		
+# neration=dataset --data-set=kaggle --processed-data-file="../../../dlrm		
+# /raw_data/kaggleAdDisplayChallenge_processed.npz" --load-model="../../..		
+# /dlrm/trainedModels/kaggle-model-graham-final.pt" --mini-batch-size=500		
+#  --nepochs=1 --inference-only
+
+
 # Copyright (c) Facebook, Inc. and its affiliates.
 #
 # This source code is licensed under the MIT license found in the
@@ -96,6 +105,7 @@ from tricks.md_embedding_bag import PrEmbeddingBag, md_solver
 
 # quotient-remainder trick
 from tricks.qr_embedding_bag import QREmbeddingBag
+from concurrent.futures import ThreadPoolExecutor
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -103,6 +113,16 @@ with warnings.catch_warnings():
         import onnx
     except ImportError as error:
         print("Unable to import onnx. ", error)
+
+#dpu		
+import sys		
+sys.path.append('../..')		
+import dputypes		
+from ctypes import *			
+so_file="./emblib.so"		
+my_functions=CDLL(so_file)		
+from dputypes import *			
+#dpu
 
 # from torchviz import make_dot
 # import torch.nn.functional as Functional
@@ -140,6 +160,14 @@ def fwd_timer(method):
             (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
         return result
     return timed
+
+			
+class RTConf:
+    def __init__(self, so_file, num_dpu, runtimes, runtime_file):
+        self.so_file = so_file
+        self.num_dpu = num_dpu
+        self.runtimes = runtimes
+        self.runtime_file = runtime_file
 
 
 def time_wrap(use_gpu):
@@ -264,6 +292,31 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return torch.nn.Sequential(*layers)
 
+    # dpu
+    def export_emb(self, emb_l):
+
+        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32), POINTER(DpuRuntimeTotals)
+        my_functions.populate_mram.restype= None
+
+        for k in range(0, len(emb_l)):
+            emb_data=[]
+            tmp_emb = list(emb_l[k].parameters())[0].tolist()
+            
+            nr_rows=len(tmp_emb)
+            nr_cols=len(tmp_emb[0])
+
+            for i in range(0, nr_rows):
+                for j in range(0, nr_cols):
+                    emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
+            data_pointer=(c_int32*(len(emb_data)))(*emb_data)
+            runtimes = pointer(DpuRuntimeTotals())
+            my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
+
+        #my_functions.toy_function()
+            
+        return
+    # dpu
+
     def create_emb(self, m, ln, weighted_pooling=None):
         emb_l = nn.ModuleList()
         v_W_l = []
@@ -310,6 +363,10 @@ class DLRM_Net(nn.Module):
             else:
                 v_W_l.append(torch.ones(n, dtype=torch.float32))
             emb_l.append(EE)
+
+        if args.data_generation == "random":
+            self.export_emb(emb_l)
+    
         return emb_l, v_W_l
 
     def __init__(
@@ -345,6 +402,7 @@ class DLRM_Net(nn.Module):
         ):
 
             # save arguments
+            self.m_spa = m_spa
             self.ndevices = ndevices
             self.output_d = 0
             self.parallel_model_batch_size = -1
@@ -423,6 +481,7 @@ class DLRM_Net(nn.Module):
         # return x
         # approach 2: use Sequential container to wrap all layers
         return layers(x)
+
     @emb_timer
     def apply_emb(self, lS_o, lS_i, emb_l, v_W_l):
         # WARNING: notice that we are processing the batch at once. We implicitly
@@ -432,7 +491,49 @@ class DLRM_Net(nn.Module):
         # 2. for each embedding the lookups are further organized into a batch
         # 3. for a list of embedding tables there is a list of batched lookups
 
-        ly = []
+        def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
+            lx = []
+            final_result_len=len(sparse_offset_group_batch.tolist())
+            final_result_len*=self.m_spa
+            offsets=list(sparse_offset_group_batch.tolist())
+            offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
+            indices=list(sparse_index_group_batch.tolist())
+            indices_pointer=(c_uint32*(len(indices)))(*indices)
+            indices_len=len(sparse_index_group_batch)
+            indices_len_pointer=(c_uint64)(indices_len)
+            offsets_len=len(sparse_offset_group_batch)
+            offsets_len_pointer=(c_uint64)(offsets_len)
+            lookup_results=(c_float*(final_result_len))(*lx)
+            rg = None	
+            runtimes_init = [DpuRuntimeGroup(length=args.num_batches)]		
+            rg = (DpuRuntimeGroup * len(lS_i))(*runtimes_init)
+            my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer,
+            lookup_results,k,rg)
+            return lookup_results
+
+        lr=[]
+        my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), c_uint64,
+        c_uint64,POINTER(c_float), c_uint32, POINTER(DpuRuntimeGroup)
+
+        my_functions.lookup.restype= None
+
+        #multi-thread host lookup
+        with ThreadPoolExecutor() as executor:
+            #results=[executor.submit(lS_o[k], lS_i[k],k) for k in range(len(lS_i))]
+            results=executor.map(dpu_lookup, lS_o, lS_i, range(0,len(lS_i)))
+        
+        for i,result in enumerate(results):
+            #print(type(result))
+            lr.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
+            lr[i].requires_grad=True
+
+        #single host thread lookup
+        """ for k in range(len(lS_i)):
+            lr.append(torch.Tensor(dpu_lookup(lS_o[k],lS_i[k],k)).reshape(args.mini_batch_size,self.m_spa))
+            lr[k].requires_grad=True """
+
+        # original lookup in dlrm
+        """ ly = []
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
 
@@ -441,34 +542,7 @@ class DLRM_Net(nn.Module):
             # The embeddings are represented as tall matrices, with sum
             # happening vertically across 0 axis, resulting in a row vector
             # E = emb_l[k]
-
-            """ if v_W_l[k] is not None:
-                per_sample_weights = v_W_l[k].gather(0, sparse_index_group_batch)
-            else: """
-            per_sample_weights = None
-
-            """ if self.quantize_emb:
-                s1 = self.emb_l_q[k].element_size() * self.emb_l_q[k].nelement()
-                s2 = self.emb_l_q[k].element_size() * self.emb_l_q[k].nelement()
-                print("quantized emb sizes:", s1, s2)
-
-                if self.quantize_bits == 4:
-                    QV = ops.quantized.embedding_bag_4bit_rowwise_offsets(
-                        self.emb_l_q[k],
-                        sparse_index_group_batch,
-                        sparse_offset_group_batch,
-                        per_sample_weights=per_sample_weights,
-                    )
-                elif self.quantize_bits == 8:
-                    QV = ops.quantized.embedding_bag_byte_rowwise_offsets(
-                        self.emb_l_q[k],
-                        sparse_index_group_batch,
-                        sparse_offset_group_batch,
-                        per_sample_weights=per_sample_weights,
-                    )
-
-                ly.append(QV)
-            else: """
+            #per_sample_weights = None
             E = emb_l[k]
             V = E(
                 sparse_index_group_batch,
@@ -476,10 +550,28 @@ class DLRM_Net(nn.Module):
                 per_sample_weights=per_sample_weights,
             )
 
-            ly.append(V)
-
-        # print(ly)
-        return ly
+            ly.append(V) """
+        #check lookup values and accuracy loss
+        """counter=0
+            max_diff=0
+            print("printing dlrm ans in python")    
+            j=0
+            print("table no:"+str(k))
+            for batch in V:
+                print("mini-batch no:"+str(j))
+                for numb in batch:
+                    ans=numb.item()-lookup_results[counter]
+                    if (abs(ans)>max_diff):
+                        max_diff=abs(ans)
+                    print(str(ans)+", ",end='')
+                    counter+=1
+                print(" ")
+                print("----------")
+                j+=1
+            print(" ")
+            print("------------------------------------------------------------")
+            print("max diff:"+str(max_diff)) """
+        return lr
 
     #  using quantizing functions from caffe2/aten/src/ATen/native/quantized/cpu
     def quantize_embedding(self, bits):
