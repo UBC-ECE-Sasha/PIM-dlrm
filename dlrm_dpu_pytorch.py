@@ -492,38 +492,32 @@ class DLRM_Net(nn.Module):
         # 3. for a list of embedding tables there is a list of batched lookups
 
         def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
-            lx = []
-            final_result_len=len(sparse_offset_group_batch.tolist())
-            final_result_len*=self.m_spa
+            result_len=len(sparse_offset_group_batch.tolist())*self.m_spa
             offsets=list(sparse_offset_group_batch.tolist())
             offsets_pointer=(c_uint32*(len(offsets)))(*offsets)
             indices=list(sparse_index_group_batch.tolist())
             indices_pointer=(c_uint32*(len(indices)))(*indices)
-            indices_len=len(sparse_index_group_batch)
-            indices_len_pointer=(c_uint64)(indices_len)
-            offsets_len=len(sparse_offset_group_batch)
-            offsets_len_pointer=(c_uint64)(offsets_len)
-            lookup_results=(c_float*(final_result_len))(*lx)
-            rg = None	
-            runtimes_init = [DpuRuntimeGroup(length=args.num_batches)]		
-            rg = (DpuRuntimeGroup * len(lS_i))(*runtimes_init)
-            my_functions.lookup(indices_pointer,offsets_pointer,indices_len_pointer,offsets_len_pointer,
-            lookup_results,k,rg)
+            indices_len=(c_uint64)(len(sparse_index_group_batch))
+            offsets_len=(c_uint64)(len(sparse_offset_group_batch))
+            lookup_results=(c_float*(result_len))(*[])
+            #rg = None	
+            #runtimes_init = [DpuRuntimeGroup(length=args.num_batches)]		
+            #rg = (DpuRuntimeGroup * len(lS_i))(*runtimes_init)
+            my_functions.lookup(indices_pointer,offsets_pointer,indices_len,offsets_len,
+            lookup_results,k)
             return lookup_results
 
         lr=[]
         my_functions.lookup.argtypes = POINTER(c_uint32), POINTER(c_uint32), c_uint64,
-        c_uint64,POINTER(c_float), c_uint32, POINTER(DpuRuntimeGroup)
-
+        c_uint64,POINTER(c_float), c_uint32
+        #, POINTER(DpuRuntimeGroup)
         my_functions.lookup.restype= None
 
         #multi-thread host lookup
         with ThreadPoolExecutor() as executor:
-            #results=[executor.submit(lS_o[k], lS_i[k],k) for k in range(len(lS_i))]
             results=executor.map(dpu_lookup, lS_o, lS_i, range(0,len(lS_i)))
         
         for i,result in enumerate(results):
-            #print(type(result))
             lr.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
             lr[i].requires_grad=True
 
