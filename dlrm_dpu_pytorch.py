@@ -106,6 +106,7 @@ from tricks.md_embedding_bag import PrEmbeddingBag, md_solver
 # quotient-remainder trick
 from tricks.qr_embedding_bag import QREmbeddingBag
 from concurrent.futures import ThreadPoolExecutor
+import psutil
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -515,7 +516,7 @@ class DLRM_Net(nn.Module):
 
         #multi-thread host lookup
         with ThreadPoolExecutor() as executor:
-            results=executor.map(dpu_lookup, lS_o, lS_i, range(0,len(lS_i)))
+            results=executor.map(dpu_lookup, lS_o, lS_i, range(len(lS_i)))
         
         for i,result in enumerate(results):
             lr.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
@@ -523,7 +524,9 @@ class DLRM_Net(nn.Module):
 
         #single host thread lookup
         """ for k in range(len(lS_i)):
+            #print("Python before CPU"+str(psutil.cpu_percent()))
             lr.append(torch.Tensor(dpu_lookup(lS_o[k],lS_i[k],k)).reshape(args.mini_batch_size,self.m_spa))
+            #print("Python after CPU"+str(psutil.cpu_percent()))
             lr[k].requires_grad=True """
 
         # original lookup in dlrm
@@ -621,7 +624,7 @@ class DLRM_Net(nn.Module):
             )
 
         return R
-    @fwd_timer
+        
     def forward(self, dense_x, lS_o, lS_i):
         if ext_dist.my_size > 1:
             # multi-node multi-device run
