@@ -297,7 +297,7 @@ class DLRM_Net(nn.Module):
     def export_emb(self, emb_l):
 
         my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32), POINTER(DpuRuntimeTotals)
-        my_functions.populate_mram.restype= None
+        my_functions.populate_mram.restype= c_void_p
 
         for k in range(0, len(emb_l)):
             emb_data=[]
@@ -311,7 +311,9 @@ class DLRM_Net(nn.Module):
                     emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
             runtimes = pointer(DpuRuntimeTotals())
-            my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
+            global dpu_set_ptr
+            dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
+            print("dpu_set_ptr in python populate:"+str(dpu_set_ptr))
 
         #my_functions.toy_function()
             
@@ -522,15 +524,18 @@ class DLRM_Net(nn.Module):
         indices_len_arr_c = (c_uint32* (len(indices_len_arr)))(*indices_len_arr)
         offsets_len_arr_c = (c_uint32* (len(offsets_len_arr)))(*offsets_len_arr)
         lookup_results_c = (c_void_p* (len(lookup_results)))(*lookup_results)
+        print("dpu_set_ptr in python lookup:"+str(dpu_set_ptr))
 
         # Invoke lookup() from emb_host.c, arguments are directly forwarded as int64 and casted in C++
-        emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), addressof(lookup_results_c), len(lookup_results))
-        
-        # Append results to lr
-        for i in range(len(lookup_results)):
-            print("TODO")
-
+        emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
+        addressof(lookup_results_c), len(lookup_results)),c_void_p(dpu_set_ptrß)
         exit()
+        
+        lr=[]
+        # Append results to lr
+        for i, result in enumerate(lookup_results):
+            lr.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
+            lr[i].requires_grad=True
 
         # using python threading
         """ def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
@@ -611,6 +616,7 @@ class DLRM_Net(nn.Module):
             print(" ")
             print("------------------------------------------------------------")
             print("max diff:"+str(max_diff)) """
+        
         return lr
 
     #  using quantizing functions from caffe2/aten/src/ATen/native/quantized/cpu
