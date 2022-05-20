@@ -500,35 +500,83 @@ class DLRM_Net(nn.Module):
         offsets_len_arr = []
         lookup_results = []
 
+        indices_arr_store = []
+        offsets_arr_store = []
+        lookup_results_store = []
+
         # Use DPU SDK threading
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
 
             result_len = len(sparse_offset_group_batch.tolist()) * self.m_spa
             offsets = list(sparse_offset_group_batch.tolist())
-            offsets_pointer = (c_uint32* (len(offsets)))(*offsets)
+            offsets_arr = (c_uint32 * len(offsets))(*offsets)
+            offsets_arr_store.append(offsets_arr)
             indices = list(sparse_index_group_batch.tolist())
-            indices_pointer = (c_uint32* (len(indices)))(*indices)
+            indices_arr = (c_uint32 * len(indices))(*indices)
+            indices_arr_store.append(indices_arr)
             indices_len = (c_uint32) (len(sparse_index_group_batch))
             offsets_len = (c_uint32) (len(sparse_offset_group_batch))
-            lookup_result = (c_float* (result_len))(*[])
-            indices_ptr_arr.append(addressof(indices_pointer))
-            offsets_ptr_arr.append(addressof(offsets_pointer))
+            lookup_result = (c_float * result_len)(*[])
+            lookup_results_store.append(lookup_result)
+            indices_ptr_arr.append(addressof(indices_arr_store[k]))
+            offsets_ptr_arr.append(addressof(offsets_arr_store[k]))
             indices_len_arr.append(indices_len)
             offsets_len_arr.append(offsets_len)
-            lookup_results.append(addressof(lookup_result))
+            lookup_results.append(addressof(lookup_results_store[k]))
+
 
         # Cast to C pointer arrays
-        indices_ptr_arr_c = (c_void_p* (len(indices_ptr_arr)))(*indices_ptr_arr)
-        offsets_ptr_arr_c = (c_void_p* (len(offsets_ptr_arr)))(*offsets_ptr_arr)
-        indices_len_arr_c = (c_uint32* (len(indices_len_arr)))(*indices_len_arr)
-        offsets_len_arr_c = (c_uint32* (len(offsets_len_arr)))(*offsets_len_arr)
-        lookup_results_c = (c_void_p* (len(lookup_results)))(*lookup_results)
-        print("dpu_set_ptr in python lookup:"+str(dpu_set_ptr))
+        indices_ptr_arr_c = (c_uint64 * len(indices_ptr_arr))(*indices_ptr_arr)
+        offsets_ptr_arr_c = (c_uint64 * len(offsets_ptr_arr))(*offsets_ptr_arr)
+        indices_len_arr_c = (c_uint32 * len(indices_len_arr))(*indices_len_arr)
+        offsets_len_arr_c = (c_uint32 * len(offsets_len_arr))(*offsets_len_arr)
+        lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
+        print("DEBUG (Python): variables passing test:")
+        print("DEBUG (Python): indices_ptr_arr_c: ", hex(cast(indices_ptr_arr[0], c_void_p).value), ", deref'd:")
+        for k, debug_prints_0 in enumerate(lS_i):
+            print("Table ", k, ":")
+            print("[ ", end = "")
+            for j in range(10):
+                print(debug_prints_0.tolist()[j], ", ", end ="")
+            print("]")
+        # print("    *indices_ptr_arr[0][0]: ", hex(cast(indices_ptr_arr[0], POINTER(c_uint32)).contents.value))
+        print("DEBUG (Python): offsets_ptr_arr_c: ", hex(cast(offsets_ptr_arr[0], c_void_p).value), ", deref'd:")
+        for k, debug_prints_0 in enumerate(lS_i):
+            debug_prints_1 = lS_o[k].tolist()
+            print("Table ", k, ":")
+            print("[ ", end = "")
+            for j in range(10):
+                print(debug_prints_1[j], ", ", end = "")
+            print("]")
+        # print("    *offsets_ptr_arr[0][0]: ", hex(cast(offsets_ptr_arr[0], POINTER(c_uint32)).contents.value))
+        print("DEBUG (Python): indices_len_arr_c: ", hex(addressof(indices_len_arr[0])), ", deref'd:")
+        print("[ ", end = "")
+        for k, debug_prints_0 in enumerate(lS_i):
+            print(len(debug_prints_0), ", ", end = "")
+        print("]")
+        # print("    *indices_len_arr[0]: ", hex(indices_len_arr[0].value))
+        print("DEBUG (Python): offsets_len_arr_c: ", hex(addressof(offsets_len_arr[0])), ", deref'd:")
+        print("[ ", end = "")
+        for k, debug_prints_0 in enumerate(lS_i):
+            debug_prints_1 = len(lS_o[k].tolist())
+            print(debug_prints_1, ", ", end = "")
+        print("]")
+        # print("    *offsets_len_arr[0]: ", hex(offsets_len_arr[0].value))
+        print("DEBUG (Python): lookup_results_c: ", hex(addressof(lookup_results_c)))
 
+
+        # dummy = POINTER(c_uint32)(addressof(indices_arr))
+        carr = cast(indices_arr, POINTER(c_uint32))
+        pointer_to_carr = pointer(carr)
+        print("DEBUG (Python): BREAKDOWN TESTING: ", hex(addressof(indices_arr)), carr, hex(addressof(carr)), pointer_to_carr, hex(addressof(pointer_to_carr)))
+
+        # OLD CALL
         # Invoke lookup() from emb_host.c, arguments are directly forwarded as int64 and casted in C++
         emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
         addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
+        # emb_l[0](addressof(carr), cast(offsets_ptr_arr[0], c_void_p).value, addressof(indices_len_arr[0]), addressof(offsets_len_arr[0]), 
+        # addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
         exit()
         
         lr=[]
