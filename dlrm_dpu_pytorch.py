@@ -574,7 +574,7 @@ class DLRM_Net(nn.Module):
         # OLD CALL
         # Invoke lookup() from emb_host.c, arguments are directly forwarded as int64 and casted in C++
         emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
-        addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
+        addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr), True, True)
         # emb_l[0](addressof(carr), cast(offsets_ptr_arr[0], c_void_p).value, addressof(indices_len_arr[0]), addressof(offsets_len_arr[0]), 
         # addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
         exit()
