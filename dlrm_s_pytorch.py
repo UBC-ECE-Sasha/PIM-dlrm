@@ -114,14 +114,14 @@ def emb_timer(method):
     times = []
     
     def timed(*args, **kw):
-        ts = time.time()
+        ts = time.process_time_ns()
         result = method(*args, **kw)
-        te = time.time()
+        te = time.process_time_ns()
        
         times.append(te-ts)
-        #if (len(times)%nbatches==0):
-        print('%r  %2.2f ms (%2.2f ms)' % \
-            (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+        if (len(times)%nbatches==0):
+            print('%r  %f ns (%f ns)' % \
+                (method.__name__, (te - ts), (sum(times) / len(times)) )+" ,iteration="+str(len(times)))
 
         return result
     return timed
@@ -535,7 +535,7 @@ class DLRM_Net(nn.Module):
             )
 
         return R
-    @fwd_timer
+    #@fwd_timer
     def forward(self, dense_x, lS_o, lS_i):
         if ext_dist.my_size > 1:
             # multi-node multi-device run

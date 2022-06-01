@@ -115,15 +115,15 @@ with warnings.catch_warnings():
     except ImportError as error:
         print("Unable to import onnx. ", error)
 
-#dpu		
+from ctypes import *
+""" #dpu		
 import sys		
 sys.path.append('../..')		
-import dputypes		
-from ctypes import *			
+#import dputypes					
 so_file="./emblib.so"		
 my_functions=CDLL(so_file)		
-from dputypes import *			
-#dpu
+#from dputypes import *			
+#dpu """
 
 # from torchviz import make_dot
 # import torch.nn.functional as Functional
@@ -135,14 +135,14 @@ def emb_timer(method):
     times = []
     
     def timed(*args, **kw):
-        ts = time.time()
+        ts = time.process_time_ns()
         result = method(*args, **kw)
-        te = time.time()
+        te = time.process_time_ns()
        
         times.append(te-ts)
         #if (len(times)%nbatches==0):
-        print('%r  %2.2f ms (%2.2f ms)' % \
-            (method.__name__, (te - ts) * 1000, (sum(times) / len(times)) * 1000)+" ,iteration="+str(len(times)))
+        print('%r  %f ms (%f ms)' % \
+            (method.__name__, (te - ts) , (sum(times) / len(times)) )+" ,iteration="+str(len(times)))
 
         return result
     return timed
@@ -293,10 +293,10 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return torch.nn.Sequential(*layers)
 
-    # dpu
+    """ # dpu
     def export_emb(self, emb_l):
 
-        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32), POINTER(DpuRuntimeTotals)
+        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32) #, POINTER(DpuRuntimeTotals)
         my_functions.populate_mram.restype= c_void_p
 
         for k in range(0, len(emb_l)):
@@ -310,15 +310,14 @@ class DLRM_Net(nn.Module):
                 for j in range(0, nr_cols):
                     emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
-            runtimes = pointer(DpuRuntimeTotals())
+            #runtimes = pointer(DpuRuntimeTotals())
             global dpu_set_ptr
-            dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
-            print("dpu_set_ptr in python populate:"+str(dpu_set_ptr))
+            dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer) #,runtimes)
 
         #my_functions.toy_function()
             
         return
-    # dpu
+    # dpu """
 
     def create_emb(self, m, ln, weighted_pooling=None):
         emb_l = nn.ModuleList()
@@ -367,8 +366,8 @@ class DLRM_Net(nn.Module):
                 v_W_l.append(torch.ones(n, dtype=torch.float32))
             emb_l.append(EE)
 
-        if args.data_generation == "random":
-            self.export_emb(emb_l)
+        #if args.data_generation == "random":
+            #self.export_emb(emb_l)
     
         return emb_l, v_W_l
 
@@ -494,7 +493,7 @@ class DLRM_Net(nn.Module):
         # 2. for each embedding the lookups are further organized into a batch
         # 3. for a list of embedding tables there is a list of batched lookups
 
-        indices_ptr_arr = []
+        """ indices_ptr_arr = []
         offsets_ptr_arr = []
         indices_len_arr = []
         offsets_len_arr = []
@@ -509,6 +508,8 @@ class DLRM_Net(nn.Module):
             offsets_pointer = (c_uint32* (len(offsets)))(*offsets)
             indices = list(sparse_index_group_batch.tolist())
             indices_pointer = (c_uint32* (len(indices)))(*indices)
+            #print(len(indices))
+            #print(indices)
             indices_len = (c_uint32) (len(sparse_index_group_batch))
             offsets_len = (c_uint32) (len(sparse_offset_group_batch))
             lookup_result = (c_float* (result_len))(*[])
@@ -519,24 +520,24 @@ class DLRM_Net(nn.Module):
             lookup_results.append(addressof(lookup_result))
 
         # Cast to C pointer arrays
-        indices_ptr_arr_c = (c_void_p* (len(indices_ptr_arr)))(*indices_ptr_arr)
-        offsets_ptr_arr_c = (c_void_p* (len(offsets_ptr_arr)))(*offsets_ptr_arr)
+        indices_ptr_arr_c = (c_uint32* (len(indices_ptr_arr)))(*indices_ptr_arr)
+        offsets_ptr_arr_c = (c_uint32* (len(offsets_ptr_arr)))(*offsets_ptr_arr)
         indices_len_arr_c = (c_uint32* (len(indices_len_arr)))(*indices_len_arr)
         offsets_len_arr_c = (c_uint32* (len(offsets_len_arr)))(*offsets_len_arr)
         lookup_results_c = (c_void_p* (len(lookup_results)))(*lookup_results)
-        print("dpu_set_ptr in python lookup:"+str(dpu_set_ptr))
-
+         """
         # Invoke lookup() from emb_host.c, arguments are directly forwarded as int64 and casted in C++
-        emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
-        addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
-        exit()
+        #print("before C++")
+        #emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
+        #addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
+        #exit()
         
-        lr=[]
+        """ lr=[]
         # Append results to lr
         for i, result in enumerate(lookup_results):
             lr.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
             lr[i].requires_grad=True
-
+ """
         # using python threading
         """ def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
             result_len=len(sparse_offset_group_batch.tolist())*self.m_spa
@@ -578,7 +579,7 @@ class DLRM_Net(nn.Module):
             lr[k].requires_grad=True """
 
         # original lookup in dlrm
-        """ ly = []
+        ly = []
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
 
@@ -586,8 +587,8 @@ class DLRM_Net(nn.Module):
             # We are using EmbeddingBag, which implicitly uses sum operator.
             # The embeddings are represented as tall matrices, with sum
             # happening vertically across 0 axis, resulting in a row vector
-            # E = emb_l[k]
-            #per_sample_weights = None
+            E = emb_l[k]
+            per_sample_weights = None
             E = emb_l[k]
             V = E(
                 sparse_index_group_batch,
@@ -595,7 +596,7 @@ class DLRM_Net(nn.Module):
                 per_sample_weights=per_sample_weights,
             )
 
-            ly.append(V) """
+            ly.append(V)
         #check lookup values and accuracy loss
         """counter=0
             max_diff=0
@@ -617,7 +618,7 @@ class DLRM_Net(nn.Module):
             print("------------------------------------------------------------")
             print("max diff:"+str(max_diff)) """
         
-        return lr
+        return ly
 
     #  using quantizing functions from caffe2/aten/src/ATen/native/quantized/cpu
     def quantize_embedding(self, bits):
