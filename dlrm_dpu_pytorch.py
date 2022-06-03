@@ -313,7 +313,6 @@ class DLRM_Net(nn.Module):
             runtimes = pointer(DpuRuntimeTotals())
             global dpu_set_ptr
             dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
-            print("dpu_set_ptr in python populate:"+str(dpu_set_ptr))
 
         #my_functions.toy_function()
             
@@ -532,44 +531,11 @@ class DLRM_Net(nn.Module):
         indices_len_arr_c = (c_uint32 * len(indices_len_arr))(*indices_len_arr)
         offsets_len_arr_c = (c_uint32 * len(offsets_len_arr))(*offsets_len_arr)
         lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
-        print("DEBUG (Python): variables passing test:")
-        print("DEBUG (Python): indices_ptr_arr_c: ", hex(cast(indices_ptr_arr[0], c_void_p).value), ", deref'd:")
-        for k, debug_prints_0 in enumerate(lS_i):
-            print("Table ", k, ":")
-            print("[ ", end = "")
-            for j in range(10):
-                print(debug_prints_0.tolist()[j], ", ", end ="")
-            print("]")
-        # print("    *indices_ptr_arr[0][0]: ", hex(cast(indices_ptr_arr[0], POINTER(c_uint32)).contents.value))
-        print("DEBUG (Python): offsets_ptr_arr_c: ", hex(cast(offsets_ptr_arr[0], c_void_p).value), ", deref'd:")
-        for k, debug_prints_0 in enumerate(lS_i):
-            debug_prints_1 = lS_o[k].tolist()
-            print("Table ", k, ":")
-            print("[ ", end = "")
-            for j in range(10):
-                print(debug_prints_1[j], ", ", end = "")
-            print("]")
-        # print("    *offsets_ptr_arr[0][0]: ", hex(cast(offsets_ptr_arr[0], POINTER(c_uint32)).contents.value))
-        print("DEBUG (Python): indices_len_arr_c: ", hex(addressof(indices_len_arr[0])), ", deref'd:")
-        print("[ ", end = "")
-        for k, debug_prints_0 in enumerate(lS_i):
-            print(len(debug_prints_0), ", ", end = "")
-        print("]")
-        # print("    *indices_len_arr[0]: ", hex(indices_len_arr[0].value))
-        print("DEBUG (Python): offsets_len_arr_c: ", hex(addressof(offsets_len_arr[0])), ", deref'd:")
-        print("[ ", end = "")
-        for k, debug_prints_0 in enumerate(lS_i):
-            debug_prints_1 = len(lS_o[k].tolist())
-            print(debug_prints_1, ", ", end = "")
-        print("]")
-        # print("    *offsets_len_arr[0]: ", hex(offsets_len_arr[0].value))
-        print("DEBUG (Python): lookup_results_c: ", hex(addressof(lookup_results_c)))
-
+        
 
         # dummy = POINTER(c_uint32)(addressof(indices_arr))
         carr = cast(indices_arr, POINTER(c_uint32))
         pointer_to_carr = pointer(carr)
-        print("DEBUG (Python): BREAKDOWN TESTING: ", hex(addressof(indices_arr)), carr, hex(addressof(carr)), pointer_to_carr, hex(addressof(pointer_to_carr)))
 
         # OLD CALL
         # Invoke lookup() from emb_host.c, arguments are directly forwarded as int64 and casted in C++
