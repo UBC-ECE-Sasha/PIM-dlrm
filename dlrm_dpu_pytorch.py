@@ -503,46 +503,89 @@ class DLRM_Net(nn.Module):
         offsets_arr_store = []
         lookup_results_store = []
 
-        # Use DPU SDK threading
-        for k, sparse_index_group_batch in enumerate(lS_i):
-            sparse_offset_group_batch = lS_o[k]
+        # # Use DPU SDK threading
+        # for k, sparse_index_group_batch in enumerate(lS_i):
+        #     sparse_offset_group_batch = lS_o[k]
 
-            result_len = len(sparse_offset_group_batch.tolist()) * self.m_spa
-            offsets = list(sparse_offset_group_batch.tolist())
-            offsets_arr = (c_uint32 * len(offsets))(*offsets)
-            offsets_arr_store.append(offsets_arr)
-            indices = list(sparse_index_group_batch.tolist())
-            indices_arr = (c_uint32 * len(indices))(*indices)
-            indices_arr_store.append(indices_arr)
-            indices_len = (c_uint32) (len(sparse_index_group_batch))
-            offsets_len = (c_uint32) (len(sparse_offset_group_batch))
-            lookup_result = (c_float * result_len)(*[])
-            lookup_results_store.append(lookup_result)
-            indices_ptr_arr.append(addressof(indices_arr_store[k]))
-            offsets_ptr_arr.append(addressof(offsets_arr_store[k]))
-            indices_len_arr.append(indices_len)
-            offsets_len_arr.append(offsets_len)
-            lookup_results.append(addressof(lookup_results_store[k]))
+        #     result_len = len(sparse_offset_group_batch.tolist()) * self.m_spa
+        #     offsets = list(sparse_offset_group_batch.tolist())
+        #     offsets_arr = (c_uint32 * len(offsets))(*offsets)
+        #     offsets_arr_store.append(offsets_arr)
+        #     indices = list(sparse_index_group_batch.tolist())
+        #     indices_arr = (c_uint32 * len(indices))(*indices)
+        #     indices_arr_store.append(indices_arr)
+        #     indices_len = (c_uint32) (len(sparse_index_group_batch))
+        #     offsets_len = (c_uint32) (len(sparse_offset_group_batch))
+        #     lookup_result = (c_float * result_len)(*[])
+        #     lookup_results_store.append(lookup_result)
+        #     indices_ptr_arr.append(addressof(indices_arr_store[k]))
+        #     offsets_ptr_arr.append(addressof(offsets_arr_store[k]))
+        #     indices_len_arr.append(indices_len)
+        #     offsets_len_arr.append(offsets_len)
+        #     lookup_results.append(addressof(lookup_results_store[k]))
 
 
-        # Cast to C pointer arrays
-        indices_ptr_arr_c = (c_uint64 * len(indices_ptr_arr))(*indices_ptr_arr)
-        offsets_ptr_arr_c = (c_uint64 * len(offsets_ptr_arr))(*offsets_ptr_arr)
-        indices_len_arr_c = (c_uint32 * len(indices_len_arr))(*indices_len_arr)
-        offsets_len_arr_c = (c_uint32 * len(offsets_len_arr))(*offsets_len_arr)
-        lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
+        # # Cast to C pointer arrays
+        # indices_ptr_arr_c = (c_uint64 * len(indices_ptr_arr))(*indices_ptr_arr)
+        # offsets_ptr_arr_c = (c_uint64 * len(offsets_ptr_arr))(*offsets_ptr_arr)
+        # indices_len_arr_c = (c_uint32 * len(indices_len_arr))(*indices_len_arr)
+        # offsets_len_arr_c = (c_uint32 * len(offsets_len_arr))(*offsets_len_arr)
+        # lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
         
 
-        # dummy = POINTER(c_uint32)(addressof(indices_arr))
-        carr = cast(indices_arr, POINTER(c_uint32))
-        pointer_to_carr = pointer(carr)
+        # # dummy = POINTER(c_uint32)(addressof(indices_arr))
+        # carr = cast(indices_arr, POINTER(c_uint32))
+        # pointer_to_carr = pointer(carr)
 
         # OLD CALL
         # Invoke lookup() from emb_host.c, arguments are directly forwarded as int64 and casted in C++
-        emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
-        addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr), True, True)
+        # emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
+        # addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr), True, True)
         # emb_l[0](addressof(carr), cast(offsets_ptr_arr[0], c_void_p).value, addressof(indices_len_arr[0]), addressof(offsets_len_arr[0]), 
         # addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
+        
+        # Test updated prototype - Original + mode flags
+        torch.set_printoptions(edgeitems=10)
+        ly = []
+        NUM_OF_TABLES = 10
+        DPU_SET_PTR = int(dpu_set_ptr)
+        LOOKUP_MODE = True
+        USE_DPU = True
+        for k, sparse_index_group_batch in enumerate(lS_i):
+            sparse_offset_group_batch = lS_o[k]
+            print("Python: Indices for table " + str(k) + ": ", sparse_index_group_batch)
+            print("Python: Offsets for table " + str(k) + ": ", sparse_offset_group_batch)
+
+            print("Indices len: ", len(sparse_index_group_batch))
+            print("Offsets len: ", len(sparse_offset_group_batch))
+
+            E = emb_l[k]
+            V = E(
+                sparse_index_group_batch,
+                sparse_offset_group_batch,
+                per_sample_weights=None,
+                num_of_tables=NUM_OF_TABLES,
+                dpu_set_ptr=DPU_SET_PTR,
+                lookup_mode=LOOKUP_MODE,
+                use_dpu=USE_DPU,
+                final_results_ptr=0
+            )
+
+            print()
+
+            ly.append(V)
+        LOOKUP_MODE = False
+        V = E(
+                sparse_index_group_batch,
+                sparse_offset_group_batch,
+                None,
+                NUM_OF_TABLES,
+                DPU_SET_PTR,
+                LOOKUP_MODE,
+                USE_DPU,
+                0
+            )
+        return ly
         exit()
         
         lr=[]
