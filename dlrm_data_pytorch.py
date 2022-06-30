@@ -918,7 +918,7 @@ def generate_dist_input_batch(
     rand_data_mu,
     rand_data_sigma,
 ):
-    # dense feature
+    # dense featurerandom
     Xt = torch.tensor(ra.rand(n, m_den).astype(np.float32))
 
     # sparse feature (sparse indices)
@@ -931,7 +931,6 @@ def generate_dist_input_batch(
         lS_batch_indices = []
         offset = 0
         for _ in range(n):
-            # num of sparse indices to be used per embedding (between
             if num_indices_per_lookup_fixed:
                 sparse_group_size = np.int64(num_indices_per_lookup)
             else:
@@ -961,8 +960,8 @@ def generate_dist_input_batch(
             lS_batch_indices += sparse_group.tolist()
             # update offset for next iteration
             offset += sparse_group_size
-        lS_emb_offsets.append(torch.tensor(lS_batch_offsets))
-        lS_emb_indices.append(torch.tensor(lS_batch_indices))
+        lS_emb_offsets.append(torch.tensor(lS_batch_offsets, dtype=torch.int32))
+        lS_emb_indices.append(torch.tensor(lS_batch_indices, dtype=torch.int32))
 
     return (Xt, lS_emb_offsets, lS_emb_indices)
 
