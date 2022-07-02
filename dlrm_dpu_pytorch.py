@@ -313,6 +313,7 @@ class DLRM_Net(nn.Module):
             runtimes = pointer(DpuRuntimeTotals())
             global dpu_set_ptr
             dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
+            print("DPU SET PTR: ", dpu_set_ptr)
 
         #my_functions.toy_function()
             
@@ -547,10 +548,14 @@ class DLRM_Net(nn.Module):
         # Test updated prototype - Original + mode flags
         torch.set_printoptions(edgeitems=10)
         ly = []
-        NUM_OF_TABLES = 10
+        NUM_OF_TABLES = 9
         DPU_SET_PTR = int(dpu_set_ptr)
+        
+        print("DPU SET PTR: ", dpu_set_ptr, DPU_SET_PTR)
         LOOKUP_MODE = True
         USE_DPU = True
+        indices_store = []
+        offsets_store = []
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
             print("Python: Indices for table " + str(k) + ": ", sparse_index_group_batch)
@@ -558,11 +563,21 @@ class DLRM_Net(nn.Module):
 
             print("Indices len: ", len(sparse_index_group_batch))
             print("Offsets len: ", len(sparse_offset_group_batch))
+            
+            # Try to maintain memory
+            indices_store.append(sparse_index_group_batch)
+            offsets_store.append(sparse_offset_group_batch)
+
+            # Create final_results array
+            result_len = len(sparse_offset_group_batch.tolist()) * self.m_spa
+            lookup_result = (c_float * result_len)(*[])
+            lookup_results_store.append(lookup_result)
+            lookup_results.append(addressof(lookup_results_store[k]))
 
             E = emb_l[k]
             V = E(
-                sparse_index_group_batch,
-                sparse_offset_group_batch,
+                indices_store[k],
+                offsets_store[k],
                 per_sample_weights=None,
                 num_of_tables=NUM_OF_TABLES,
                 dpu_set_ptr=DPU_SET_PTR,
@@ -574,16 +589,17 @@ class DLRM_Net(nn.Module):
             print()
 
             ly.append(V)
+        lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
         LOOKUP_MODE = False
         V = E(
                 sparse_index_group_batch,
                 sparse_offset_group_batch,
-                None,
-                NUM_OF_TABLES,
-                DPU_SET_PTR,
-                LOOKUP_MODE,
-                USE_DPU,
-                0
+                per_sample_weights=None,
+                num_of_tables=NUM_OF_TABLES,
+                dpu_set_ptr=DPU_SET_PTR,
+                lookup_mode=LOOKUP_MODE,
+                use_dpu=USE_DPU,
+                final_results_ptr=addressof(lookup_results_c)
             )
         return ly
         exit()
