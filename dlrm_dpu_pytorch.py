@@ -313,7 +313,7 @@ class DLRM_Net(nn.Module):
             runtimes = pointer(DpuRuntimeTotals())
             global dpu_set_ptr
             dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
-            print("DPU SET PTR: ", dpu_set_ptr)
+            #print("DPU SET PTR: ", dpu_set_ptr)
 
         #my_functions.toy_function()
             
@@ -493,15 +493,7 @@ class DLRM_Net(nn.Module):
         #   corresponding to a single lookup
         # 2. for each embedding the lookups are further organized into a batch
         # 3. for a list of embedding tables there is a list of batched lookups
-
-        indices_ptr_arr = []
-        offsets_ptr_arr = []
-        indices_len_arr = []
-        offsets_len_arr = []
         lookup_results = []
-
-        indices_arr_store = []
-        offsets_arr_store = []
         lookup_results_store = []
 
         # # Use DPU SDK threading
@@ -548,21 +540,21 @@ class DLRM_Net(nn.Module):
         # Test updated prototype - Original + mode flags
         torch.set_printoptions(edgeitems=10)
         ly = []
-        NUM_OF_TABLES = 9
+        NUM_OF_TABLES = len(lS_i)
         DPU_SET_PTR = int(dpu_set_ptr)
         
-        print("DPU SET PTR: ", dpu_set_ptr, DPU_SET_PTR)
+        #print("DPU SET PTR: ", dpu_set_ptr, DPU_SET_PTR)
         LOOKUP_MODE = True
         USE_DPU = True
         indices_store = []
         offsets_store = []
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
-            print("Python: Indices for table " + str(k) + ": ", sparse_index_group_batch)
-            print("Python: Offsets for table " + str(k) + ": ", sparse_offset_group_batch)
+            #print("Python: Indices for table " + str(k) + ": ", sparse_index_group_batch)
+            #print("Python: Offsets for table " + str(k) + ": ", sparse_offset_group_batch)
 
-            print("Indices len: ", len(sparse_index_group_batch))
-            print("Offsets len: ", len(sparse_offset_group_batch))
+            #print("Indices len: ", len(sparse_index_group_batch))
+            #print("Offsets len: ", len(sparse_offset_group_batch))
             
             # Try to maintain memory
             indices_store.append(sparse_index_group_batch)
@@ -586,7 +578,7 @@ class DLRM_Net(nn.Module):
                 final_results_ptr=0
             )
 
-            print()
+            #print()
 
             ly.append(V)
         lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
