@@ -496,65 +496,16 @@ class DLRM_Net(nn.Module):
         lookup_results = []
         lookup_results_store = []
 
-        # # Use DPU SDK threading
-        # for k, sparse_index_group_batch in enumerate(lS_i):
-        #     sparse_offset_group_batch = lS_o[k]
-
-        #     result_len = len(sparse_offset_group_batch.tolist()) * self.m_spa
-        #     offsets = list(sparse_offset_group_batch.tolist())
-        #     offsets_arr = (c_uint32 * len(offsets))(*offsets)
-        #     offsets_arr_store.append(offsets_arr)
-        #     indices = list(sparse_index_group_batch.tolist())
-        #     indices_arr = (c_uint32 * len(indices))(*indices)
-        #     indices_arr_store.append(indices_arr)
-        #     indices_len = (c_uint32) (len(sparse_index_group_batch))
-        #     offsets_len = (c_uint32) (len(sparse_offset_group_batch))
-        #     lookup_result = (c_float * result_len)(*[])
-        #     lookup_results_store.append(lookup_result)
-        #     indices_ptr_arr.append(addressof(indices_arr_store[k]))
-        #     offsets_ptr_arr.append(addressof(offsets_arr_store[k]))
-        #     indices_len_arr.append(indices_len)
-        #     offsets_len_arr.append(offsets_len)
-        #     lookup_results.append(addressof(lookup_results_store[k]))
-
-
-        # # Cast to C pointer arrays
-        # indices_ptr_arr_c = (c_uint64 * len(indices_ptr_arr))(*indices_ptr_arr)
-        # offsets_ptr_arr_c = (c_uint64 * len(offsets_ptr_arr))(*offsets_ptr_arr)
-        # indices_len_arr_c = (c_uint32 * len(indices_len_arr))(*indices_len_arr)
-        # offsets_len_arr_c = (c_uint32 * len(offsets_len_arr))(*offsets_len_arr)
-        # lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
-        
-
-        # # dummy = POINTER(c_uint32)(addressof(indices_arr))
-        # carr = cast(indices_arr, POINTER(c_uint32))
-        # pointer_to_carr = pointer(carr)
-
-        # OLD CALL
-        # Invoke lookup() from emb_host.c, arguments are directly forwarded as int64 and casted in C++
-        # emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
-        # addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr), True, True)
-        # emb_l[0](addressof(carr), cast(offsets_ptr_arr[0], c_void_p).value, addressof(indices_len_arr[0]), addressof(offsets_len_arr[0]), 
-        # addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
-        
-        # Test updated prototype - Original + mode flags
         torch.set_printoptions(edgeitems=10)
-        ly = []
         NUM_OF_TABLES = len(lS_i)
         DPU_SET_PTR = int(dpu_set_ptr)
         
-        #print("DPU SET PTR: ", dpu_set_ptr, DPU_SET_PTR)
         LOOKUP_MODE = True
         USE_DPU = True
         indices_store = []
         offsets_store = []
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
-            #print("Python: Indices for table " + str(k) + ": ", sparse_index_group_batch)
-            #print("Python: Offsets for table " + str(k) + ": ", sparse_offset_group_batch)
-
-            #print("Indices len: ", len(sparse_index_group_batch))
-            #print("Offsets len: ", len(sparse_offset_group_batch))
             
             # Try to maintain memory
             indices_store.append(sparse_index_group_batch)
@@ -568,8 +519,8 @@ class DLRM_Net(nn.Module):
 
             E = emb_l[k]
             V = E(
-                indices_store[k],
-                offsets_store[k],
+                sparse_index_group_batch,
+                sparse_offset_group_batch,
                 per_sample_weights=None,
                 num_of_tables=NUM_OF_TABLES,
                 dpu_set_ptr=DPU_SET_PTR,
@@ -577,12 +528,9 @@ class DLRM_Net(nn.Module):
                 use_dpu=USE_DPU,
                 final_results_ptr=0
             )
-
-            #print()
-
-            ly.append(V)
         lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
         LOOKUP_MODE = False
+        
         V = E(
                 sparse_index_group_batch,
                 sparse_offset_group_batch,
@@ -593,14 +541,16 @@ class DLRM_Net(nn.Module):
                 use_dpu=USE_DPU,
                 final_results_ptr=addressof(lookup_results_c)
             )
-        return ly
+        print("done")
         exit()
         
-        lr=[]
-        # Append results to lr
-        for i, result in enumerate(lookup_results):
-            lr.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
-            lr[i].requires_grad=True
+        # Append results to ly
+        ly=[]
+        """ for i, result in enumerate(lookup_results_store):
+            ly.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
+            ly[i].requires_grad=True """
+
+        return ly
 
         # using python threading
         """ def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
