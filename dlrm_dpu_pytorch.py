@@ -493,10 +493,13 @@ class DLRM_Net(nn.Module):
         #   corresponding to a single lookup
         # 2. for each embedding the lookups are further organized into a batch
         # 3. for a list of embedding tables there is a list of batched lookups
+
+        # Profiling
+        start_time = datetime.datetime.now()
+
         lookup_results = []
         lookup_results_store = []
 
-        torch.set_printoptions(edgeitems=10)
         NUM_OF_TABLES = len(lS_i)
         DPU_SET_PTR = int(dpu_set_ptr)
         
@@ -530,6 +533,8 @@ class DLRM_Net(nn.Module):
             )
         lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
         LOOKUP_MODE = False
+
+        before_last_call_time = datetime.datetime.now()
         
         V = E(
                 sparse_index_group_batch,
@@ -547,6 +552,8 @@ class DLRM_Net(nn.Module):
         for i, result in enumerate(lookup_results_store):
             ly.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
             ly[i].requires_grad=True
+
+        print("Python data manipulation overhead: ", (before_last_call_time - start_time).microseconds, " μs")
 
         return ly
 
