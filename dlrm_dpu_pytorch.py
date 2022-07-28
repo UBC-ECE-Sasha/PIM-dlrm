@@ -541,14 +541,12 @@ class DLRM_Net(nn.Module):
                 use_dpu=USE_DPU,
                 final_results_ptr=addressof(lookup_results_c)
             )
-        print("done")
-        exit()
         
         # Append results to ly
         ly=[]
-        """ for i, result in enumerate(lookup_results_store):
+        for i, result in enumerate(lookup_results_store):
             ly.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
-            ly[i].requires_grad=True """
+            ly[i].requires_grad=True
 
         return ly
 
@@ -688,7 +686,8 @@ class DLRM_Net(nn.Module):
             )
 
         return R
-        
+
+    @fwd_timer    
     def forward(self, dense_x, lS_o, lS_i):
         if ext_dist.my_size > 1:
             # multi-node multi-device run
