@@ -507,6 +507,16 @@ class DLRM_Net(nn.Module):
         USE_DPU = True
         indices_store = []
         offsets_store = []
+
+        # Prep ly array, move this creation elsewhere
+        lyCreationTimer0 = datetime.datetime.now()
+        ly = []
+        for i in range(len(lS_i)):
+            ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+            np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+        lyCreationTimer1 = datetime.datetime.now()
+        print("Python: ly creation time: ", (lyCreationTimer1 - lyCreationTimer0).microseconds, " μs")
+
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
             
@@ -515,13 +525,22 @@ class DLRM_Net(nn.Module):
             offsets_store.append(sparse_offset_group_batch)
 
             # Create final_results array
-            result_len = len(sparse_offset_group_batch.tolist()) * self.m_spa
-            lookup_result = (c_float * result_len)(*[])
-            lookup_results_store.append(lookup_result)
-            lookup_results.append(addressof(lookup_results_store[k]))
+            appendPointerTimer0 = datetime.datetime.now()
+            lookup_results.append(ly[k].numpy().ctypes.data)
+            appendPointerTimer1 = datetime.datetime.now()
+            print("Python: array pointer append time: ", (appendPointerTimer1 - appendPointerTimer0).microseconds, " μs")
+
+            # # TEST NUMPY
+            # test_arr = np.arange(30, dtype=np.float32).reshape(3, 10)
+            # np.ascontiguousarray(test_arr, dtype=np.float32)
+            # print("Python: numpy array: ")
+            # print("Contiguous?", test_arr.flags["C_CONTIGUOUS"])
+            # print(test_arr)
+            # converted = (c_float*(len(30)))(*test_arr)
+            # converted = test_arr.ctypes.data
 
             E = emb_l[k]
-            V = E(
+            E(
                 sparse_index_group_batch,
                 sparse_offset_group_batch,
                 per_sample_weights=None,
@@ -536,7 +555,7 @@ class DLRM_Net(nn.Module):
 
         before_last_call_time = datetime.datetime.now()
         
-        V = E(
+        E(
                 sparse_index_group_batch,
                 sparse_offset_group_batch,
                 per_sample_weights=None,
@@ -547,13 +566,28 @@ class DLRM_Net(nn.Module):
                 final_results_ptr=addressof(lookup_results_c)
             )
         
-        # Append results to ly
-        ly=[]
-        for i, result in enumerate(lookup_results_store):
-            ly.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
-            ly[i].requires_grad=True
-
-        print("Python data manipulation overhead: ", (before_last_call_time - start_time).microseconds, " μs")
+        # # Append results to ly
+        # before_loop = datetime.datetime.now()
+        # ly=[]
+        # for i, result in enumerate(lookup_results_store):
+        #     timer0 = datetime.datetime.now()
+        #     test = torch.Tensor(result)
+        #     timer1 = datetime.datetime.now()
+        #     test = test.reshape(args.mini_batch_size, self.m_spa)
+        #     timer2 = datetime.datetime.now()
+        #     ly.append(test)
+        #     timer3 = datetime.datetime.now()
+        #     ly[i].requires_grad=True
+        #     timer4 = datetime.datetime.now()
+        # print("Python data manipulation overhead: ")
+        # print("timer0-1: ", (timer1 - timer0).microseconds, " μs")
+        # print("timer0-1: ", (timer2 - timer1).microseconds, " μs")
+        # print("timer1-2: ", (timer3 - timer2).microseconds, " μs")
+        # print("timer3-4: ", (timer4 - timer3).microseconds, " μs")
+        # after_loop = datetime.datetime.now()
+        # print("Python data manipulation overhead: ", (before_last_call_time - start_time).microseconds, " μs")
+        # print("Line 553 loop latency: ", (before_loop - after_loop).microseconds, " μs")
+        # np.set_printoptions(threshold=sys.maxsize)
 
         return ly
 
