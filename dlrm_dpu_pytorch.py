@@ -486,7 +486,7 @@ class DLRM_Net(nn.Module):
         return layers(x)
 
     @emb_timer
-    def apply_emb(self, lS_o, lS_i, emb_l, v_W_l):
+    def apply_emb(self, lS_o, lS_i, emb_l, v_W_l, ly):
         # WARNING: notice that we are processing the batch at once. We implicitly
         # assume that the data is laid out such that:
         # 1. each embedding is indexed with a group of sparse indices,
@@ -497,25 +497,25 @@ class DLRM_Net(nn.Module):
         # Profiling
         start_time = datetime.datetime.now()
 
+        print("Python apply_emb(): tables = ", len(ly), " nr_batches = ", len(ly[0]), " NR_COLS = ", len(ly[0][0]))
+
         lookup_results = []
-        lookup_results_store = []
 
         NUM_OF_TABLES = len(lS_i)
         DPU_SET_PTR = int(dpu_set_ptr)
-        
         LOOKUP_MODE = True
         USE_DPU = True
         indices_store = []
         offsets_store = []
 
-        # Prep ly array, move this creation elsewhere
-        lyCreationTimer0 = datetime.datetime.now()
-        ly = []
-        for i in range(len(lS_i)):
-            ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
-            np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
-        lyCreationTimer1 = datetime.datetime.now()
-        print("Python: ly creation time: ", (lyCreationTimer1 - lyCreationTimer0).microseconds, " μs")
+        # # Prep ly array, move this creation elsewhere
+        # lyCreationTimer0 = datetime.datetime.now()
+        # ly = []
+        # for i in range(len(lS_i)):
+        #     ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+        #     np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+        # lyCreationTimer1 = datetime.datetime.now()
+        # print("Python: ly creation time: ", (lyCreationTimer1 - lyCreationTimer0).microseconds, " μs")
 
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
@@ -525,10 +525,10 @@ class DLRM_Net(nn.Module):
             offsets_store.append(sparse_offset_group_batch)
 
             # Create final_results array
-            appendPointerTimer0 = datetime.datetime.now()
+            # appendPointerTimer0 = datetime.datetime.now()
             lookup_results.append(ly[k].numpy().ctypes.data)
-            appendPointerTimer1 = datetime.datetime.now()
-            print("Python: array pointer append time: ", (appendPointerTimer1 - appendPointerTimer0).microseconds, " μs")
+            # appendPointerTimer1 = datetime.datetime.now()
+            # print("Python: array pointer append time: ", (appendPointerTimer1 - appendPointerTimer0).microseconds, " μs")
 
             # # TEST NUMPY
             # test_arr = np.arange(30, dtype=np.float32).reshape(3, 10)
@@ -566,6 +566,8 @@ class DLRM_Net(nn.Module):
                 final_results_ptr=addressof(lookup_results_c)
             )
         
+        done_time = datetime.datetime.now()
+        
         # # Append results to ly
         # before_loop = datetime.datetime.now()
         # ly=[]
@@ -585,11 +587,11 @@ class DLRM_Net(nn.Module):
         # print("timer1-2: ", (timer3 - timer2).microseconds, " μs")
         # print("timer3-4: ", (timer4 - timer3).microseconds, " μs")
         # after_loop = datetime.datetime.now()
-        # print("Python data manipulation overhead: ", (before_last_call_time - start_time).microseconds, " μs")
-        # print("Line 553 loop latency: ", (before_loop - after_loop).microseconds, " μs")
+        print("Python data manipulation overhead: ", (before_last_call_time - start_time).microseconds, " μs")
+        print("Last call latency: ", (done_time - before_last_call_time).microseconds, " μs")
+        # for i in range(64):
+        #     print(ly[0][i])
         # np.set_printoptions(threshold=sys.maxsize)
-
-        return ly
 
         # using python threading
         """ def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
@@ -670,8 +672,6 @@ class DLRM_Net(nn.Module):
             print(" ")
             print("------------------------------------------------------------")
             print("max diff:"+str(max_diff)) """
-        
-        return lr
 
     #  using quantizing functions from caffe2/aten/src/ATen/native/quantized/cpu
     def quantize_embedding(self, bits):
@@ -765,7 +765,11 @@ class DLRM_Net(nn.Module):
 
         # embeddings
         with record_function("DLRM embedding forward"):
-            ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
+            ly = []
+            for i in range(len(lS_i)):
+                ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+                np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+            self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l, ly)
 
         # WARNING: Note that at this point we have the result of the embedding lookup
         # for the entire batch on each rank. We would like to obtain partial results
@@ -807,7 +811,11 @@ class DLRM_Net(nn.Module):
         # print(x.detach().cpu().numpy())
 
         # process sparse features(using embeddings), resulting in a list of row vectors
-        ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
+        ly = []
+        for i in range(len(lS_i)):
+            ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+            np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+        self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l, ly)
         # for y in ly:
         #     print(y.detach().cpu().numpy())
 
@@ -892,7 +900,11 @@ class DLRM_Net(nn.Module):
         # print(x)
 
         # embeddings
-        ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
+        ly = []
+        for i in range(len(lS_i)):
+            ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+            np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+        self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l, ly)
         # debug prints
         # print(ly)
 
