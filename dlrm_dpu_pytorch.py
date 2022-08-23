@@ -306,6 +306,8 @@ class DLRM_Net(nn.Module):
             nr_rows=len(tmp_emb)
             nr_cols=len(tmp_emb[0])
 
+            print("Python: Check: NR_ROWS = ", nr_rows, " NR COLS = ", nr_cols)
+
             for i in range(0, nr_rows):
                 for j in range(0, nr_cols):
                     emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
@@ -540,6 +542,7 @@ class DLRM_Net(nn.Module):
             # converted = test_arr.ctypes.data
 
             E = emb_l[k]
+            # print("Python: Check indices length: ", len(sparse_index_group_batch))
             E(
                 sparse_index_group_batch,
                 sparse_offset_group_batch,
@@ -554,6 +557,7 @@ class DLRM_Net(nn.Module):
         LOOKUP_MODE = False
 
         before_last_call_time = datetime.datetime.now()
+
         
         E(
                 sparse_index_group_batch,
@@ -589,7 +593,7 @@ class DLRM_Net(nn.Module):
         # after_loop = datetime.datetime.now()
         print("Python data manipulation overhead: ", (before_last_call_time - start_time).microseconds, " μs")
         print("Last call latency: ", (done_time - before_last_call_time).microseconds, " μs")
-        # for i in range(64):
+        # for i in range(3):
         #     print(ly[0][i])
         # np.set_printoptions(threshold=sys.maxsize)
 

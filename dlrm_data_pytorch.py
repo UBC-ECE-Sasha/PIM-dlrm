@@ -948,7 +948,10 @@ def generate_dist_input_batch(
                 sparse_group = np.unique(sparse_group).astype(np.int64)
             elif rand_data_dist == "uniform":
                 r = ra.random(sparse_group_size)
-                sparse_group = np.unique(np.round(r * (size - 1)).astype(np.int64))
+                # if len(r) != 32:
+                #     print("Python Dataloader raw generated array size not 32: ", len(r))
+                # sparse_group = np.unique(np.round(r * (size - 1)).astype(np.int64))
+                sparse_group = np.round(r * (size - 1)).astype(np.int64)
             else:
                 raise(rand_data_dist, "distribution is not supported. \
                      please select uniform or gaussian")
@@ -958,6 +961,8 @@ def generate_dist_input_batch(
             # store lengths and indices
             lS_batch_offsets += [offset]
             lS_batch_indices += sparse_group.tolist()
+            # if sparse_group_size != 32:
+            #     print("Python Dataloader Check sparse group size not 32: ", sparse_group_size)
             # update offset for next iteration
             offset += sparse_group_size
         lS_emb_offsets.append(torch.tensor(lS_batch_offsets, dtype=torch.int32))
