@@ -116,14 +116,16 @@ with warnings.catch_warnings():
         print("Unable to import onnx. ", error)
 
 from ctypes import *
-""" #dpu		
+#dpu		
 import sys		
 sys.path.append('../..')		
-#import dputypes					
+import dputypes		
+from ctypes import *			
 so_file="./emblib.so"		
 my_functions=CDLL(so_file)		
-#from dputypes import *			
-#dpu """
+from dputypes import *			
+#dpu		
+#dpu
 
 # from torchviz import make_dot
 # import torch.nn.functional as Functional
@@ -293,10 +295,10 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return torch.nn.Sequential(*layers)
 
-    """ # dpu
+    # dpu
     def export_emb(self, emb_l):
 
-        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32) #, POINTER(DpuRuntimeTotals)
+        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32), POINTER(DpuRuntimeTotals)
         my_functions.populate_mram.restype= c_void_p
 
         for k in range(0, len(emb_l)):
@@ -312,7 +314,7 @@ class DLRM_Net(nn.Module):
                 for j in range(0, nr_cols):
                     emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
-            #runtimes = pointer(DpuRuntimeTotals())
+            runtimes = pointer(DpuRuntimeTotals())
             global dpu_set_ptr
             dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
             #print("DPU SET PTR: ", dpu_set_ptr)
@@ -320,7 +322,7 @@ class DLRM_Net(nn.Module):
         #my_functions.toy_function()
             
         return
-    # dpu """
+    # dpu
 
     def create_emb(self, m, ln, weighted_pooling=None):
         emb_l = nn.ModuleList()
@@ -369,8 +371,8 @@ class DLRM_Net(nn.Module):
                 v_W_l.append(torch.ones(n, dtype=torch.float32))
             emb_l.append(EE)
 
-        #if args.data_generation == "random":
-            #self.export_emb(emb_l)
+        if args.data_generation == "random":
+            self.export_emb(emb_l)
     
         return emb_l, v_W_l
 
