@@ -918,7 +918,7 @@ def generate_dist_input_batch(
     rand_data_mu,
     rand_data_sigma,
 ):
-    # dense feature
+    # dense featurerandom
     Xt = torch.tensor(ra.rand(n, m_den).astype(np.float32))
 
     # sparse feature (sparse indices)
@@ -931,7 +931,6 @@ def generate_dist_input_batch(
         lS_batch_indices = []
         offset = 0
         for _ in range(n):
-            # num of sparse indices to be used per embedding (between
             if num_indices_per_lookup_fixed:
                 sparse_group_size = np.int64(num_indices_per_lookup)
             else:
@@ -949,7 +948,10 @@ def generate_dist_input_batch(
                 sparse_group = np.unique(sparse_group).astype(np.int64)
             elif rand_data_dist == "uniform":
                 r = ra.random(sparse_group_size)
-                sparse_group = np.unique(np.round(r * (size - 1)).astype(np.int64))
+                # if len(r) != 32:
+                #     print("Python Dataloader raw generated array size not 32: ", len(r))
+                # sparse_group = np.unique(np.round(r * (size - 1)).astype(np.int64))
+                sparse_group = np.round(r * (size - 1)).astype(np.int64)
             else:
                 raise(rand_data_dist, "distribution is not supported. \
                      please select uniform or gaussian")
@@ -959,10 +961,12 @@ def generate_dist_input_batch(
             # store lengths and indices
             lS_batch_offsets += [offset]
             lS_batch_indices += sparse_group.tolist()
+            # if sparse_group_size != 32:
+            #     print("Python Dataloader Check sparse group size not 32: ", sparse_group_size)
             # update offset for next iteration
             offset += sparse_group_size
-        lS_emb_offsets.append(torch.tensor(lS_batch_offsets))
-        lS_emb_indices.append(torch.tensor(lS_batch_indices))
+        lS_emb_offsets.append(torch.tensor(lS_batch_offsets, dtype=torch.int32))
+        lS_emb_indices.append(torch.tensor(lS_batch_indices, dtype=torch.int32))
 
     return (Xt, lS_emb_offsets, lS_emb_indices)
 

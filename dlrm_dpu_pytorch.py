@@ -306,13 +306,16 @@ class DLRM_Net(nn.Module):
             nr_rows=len(tmp_emb)
             nr_cols=len(tmp_emb[0])
 
+            print("Python: Check: NR_ROWS = ", nr_rows, " NR COLS = ", nr_cols)
+
             for i in range(0, nr_rows):
                 for j in range(0, nr_cols):
                     emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
             #runtimes = pointer(DpuRuntimeTotals())
             global dpu_set_ptr
-            dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer) #,runtimes)
+            dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
+            #print("DPU SET PTR: ", dpu_set_ptr)
 
         #my_functions.toy_function()
             
@@ -485,7 +488,7 @@ class DLRM_Net(nn.Module):
         return layers(x)
 
     @emb_timer
-    def apply_emb(self, lS_o, lS_i, emb_l, v_W_l):
+    def apply_emb(self, lS_o, lS_i, emb_l, v_W_l, ly):
         # WARNING: notice that we are processing the batch at once. We implicitly
         # assume that the data is laid out such that:
         # 1. each embedding is indexed with a group of sparse indices,
@@ -493,51 +496,107 @@ class DLRM_Net(nn.Module):
         # 2. for each embedding the lookups are further organized into a batch
         # 3. for a list of embedding tables there is a list of batched lookups
 
-        """ indices_ptr_arr = []
-        offsets_ptr_arr = []
-        indices_len_arr = []
-        offsets_len_arr = []
+        # Profiling
+        start_time = datetime.datetime.now()
+
+        print("Python apply_emb(): tables = ", len(ly), " nr_batches = ", len(ly[0]), " NR_COLS = ", len(ly[0][0]))
+
         lookup_results = []
 
-        # Use DPU SDK threading
+        NUM_OF_TABLES = len(lS_i)
+        DPU_SET_PTR = int(dpu_set_ptr)
+        LOOKUP_MODE = True
+        USE_DPU = True
+        indices_store = []
+        offsets_store = []
+
+        # # Prep ly array, move this creation elsewhere
+        # lyCreationTimer0 = datetime.datetime.now()
+        # ly = []
+        # for i in range(len(lS_i)):
+        #     ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+        #     np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+        # lyCreationTimer1 = datetime.datetime.now()
+        # print("Python: ly creation time: ", (lyCreationTimer1 - lyCreationTimer0).microseconds, " μs")
+
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
+            
+            # Try to maintain memory
+            indices_store.append(sparse_index_group_batch)
+            offsets_store.append(sparse_offset_group_batch)
 
-            result_len = len(sparse_offset_group_batch.tolist()) * self.m_spa
-            offsets = list(sparse_offset_group_batch.tolist())
-            offsets_pointer = (c_uint32* (len(offsets)))(*offsets)
-            indices = list(sparse_index_group_batch.tolist())
-            indices_pointer = (c_uint32* (len(indices)))(*indices)
-            #print(len(indices))
-            #print(indices)
-            indices_len = (c_uint32) (len(sparse_index_group_batch))
-            offsets_len = (c_uint32) (len(sparse_offset_group_batch))
-            lookup_result = (c_float* (result_len))(*[])
-            indices_ptr_arr.append(addressof(indices_pointer))
-            offsets_ptr_arr.append(addressof(offsets_pointer))
-            indices_len_arr.append(indices_len)
-            offsets_len_arr.append(offsets_len)
-            lookup_results.append(addressof(lookup_result))
+            # Create final_results array
+            # appendPointerTimer0 = datetime.datetime.now()
+            lookup_results.append(ly[k].numpy().ctypes.data)
+            # appendPointerTimer1 = datetime.datetime.now()
+            # print("Python: array pointer append time: ", (appendPointerTimer1 - appendPointerTimer0).microseconds, " μs")
 
-        # Cast to C pointer arrays
-        indices_ptr_arr_c = (c_uint32* (len(indices_ptr_arr)))(*indices_ptr_arr)
-        offsets_ptr_arr_c = (c_uint32* (len(offsets_ptr_arr)))(*offsets_ptr_arr)
-        indices_len_arr_c = (c_uint32* (len(indices_len_arr)))(*indices_len_arr)
-        offsets_len_arr_c = (c_uint32* (len(offsets_len_arr)))(*offsets_len_arr)
-        lookup_results_c = (c_void_p* (len(lookup_results)))(*lookup_results)
-         """
-        # Invoke lookup() from emb_host.c, arguments are directly forwarded as int64 and casted in C++
-        #print("before C++")
-        #emb_l[0](addressof(indices_ptr_arr_c), addressof(offsets_ptr_arr_c), addressof(indices_len_arr_c), addressof(offsets_len_arr_c), 
-        #addressof(lookup_results_c), len(lookup_results), int(dpu_set_ptr))
-        #exit()
+            # # TEST NUMPY
+            # test_arr = np.arange(30, dtype=np.float32).reshape(3, 10)
+            # np.ascontiguousarray(test_arr, dtype=np.float32)
+            # print("Python: numpy array: ")
+            # print("Contiguous?", test_arr.flags["C_CONTIGUOUS"])
+            # print(test_arr)
+            # converted = (c_float*(len(30)))(*test_arr)
+            # converted = test_arr.ctypes.data
+
+            E = emb_l[k]
+            # print("Python: Check indices length: ", len(sparse_index_group_batch))
+            E(
+                sparse_index_group_batch,
+                sparse_offset_group_batch,
+                per_sample_weights=None,
+                num_of_tables=NUM_OF_TABLES,
+                dpu_set_ptr=DPU_SET_PTR,
+                lookup_mode=LOOKUP_MODE,
+                use_dpu=USE_DPU,
+                final_results_ptr=0
+            )
+        lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
+        LOOKUP_MODE = False
+
+        before_last_call_time = datetime.datetime.now()
+
         
-        """ lr=[]
-        # Append results to lr
-        for i, result in enumerate(lookup_results):
-            lr.append(torch.Tensor(result).reshape(args.mini_batch_size,self.m_spa))
-            lr[i].requires_grad=True
- """
+        E(
+                sparse_index_group_batch,
+                sparse_offset_group_batch,
+                per_sample_weights=None,
+                num_of_tables=NUM_OF_TABLES,
+                dpu_set_ptr=DPU_SET_PTR,
+                lookup_mode=LOOKUP_MODE,
+                use_dpu=USE_DPU,
+                final_results_ptr=addressof(lookup_results_c)
+            )
+        
+        done_time = datetime.datetime.now()
+        
+        # # Append results to ly
+        # before_loop = datetime.datetime.now()
+        # ly=[]
+        # for i, result in enumerate(lookup_results_store):
+        #     timer0 = datetime.datetime.now()
+        #     test = torch.Tensor(result)
+        #     timer1 = datetime.datetime.now()
+        #     test = test.reshape(args.mini_batch_size, self.m_spa)
+        #     timer2 = datetime.datetime.now()
+        #     ly.append(test)
+        #     timer3 = datetime.datetime.now()
+        #     ly[i].requires_grad=True
+        #     timer4 = datetime.datetime.now()
+        # print("Python data manipulation overhead: ")
+        # print("timer0-1: ", (timer1 - timer0).microseconds, " μs")
+        # print("timer0-1: ", (timer2 - timer1).microseconds, " μs")
+        # print("timer1-2: ", (timer3 - timer2).microseconds, " μs")
+        # print("timer3-4: ", (timer4 - timer3).microseconds, " μs")
+        # after_loop = datetime.datetime.now()
+        print("Python data manipulation overhead: ", (before_last_call_time - start_time).microseconds, " μs")
+        print("Last call latency: ", (done_time - before_last_call_time).microseconds, " μs")
+        # for i in range(3):
+        #     print(ly[0][i])
+        # np.set_printoptions(threshold=sys.maxsize)
+
         # using python threading
         """ def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
             result_len=len(sparse_offset_group_batch.tolist())*self.m_spa
@@ -579,6 +638,7 @@ class DLRM_Net(nn.Module):
             lr[k].requires_grad=True """
 
         # original lookup in dlrm
+        """
         ly = []
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
@@ -597,6 +657,7 @@ class DLRM_Net(nn.Module):
             )
 
             ly.append(V)
+        """
         #check lookup values and accuracy loss
         """counter=0
             max_diff=0
@@ -674,7 +735,8 @@ class DLRM_Net(nn.Module):
             )
 
         return R
-        
+
+    @fwd_timer    
     def forward(self, dense_x, lS_o, lS_i):
         if ext_dist.my_size > 1:
             # multi-node multi-device run
@@ -711,7 +773,11 @@ class DLRM_Net(nn.Module):
 
         # embeddings
         with record_function("DLRM embedding forward"):
-            ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
+            ly = []
+            for i in range(len(lS_i)):
+                ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+                np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+            self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l, ly)
 
         # WARNING: Note that at this point we have the result of the embedding lookup
         # for the entire batch on each rank. We would like to obtain partial results
@@ -753,7 +819,11 @@ class DLRM_Net(nn.Module):
         # print(x.detach().cpu().numpy())
 
         # process sparse features(using embeddings), resulting in a list of row vectors
-        ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
+        ly = []
+        for i in range(len(lS_i)):
+            ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+            np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+        self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l, ly)
         # for y in ly:
         #     print(y.detach().cpu().numpy())
 
@@ -838,7 +908,11 @@ class DLRM_Net(nn.Module):
         # print(x)
 
         # embeddings
-        ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
+        ly = []
+        for i in range(len(lS_i)):
+            ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+            np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+        self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l, ly)
         # debug prints
         # print(ly)
 
