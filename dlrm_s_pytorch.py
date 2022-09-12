@@ -432,6 +432,8 @@ class DLRM_Net(nn.Module):
         # 2. for each embedding the lookups are further organized into a batch
         # 3. for a list of embedding tables there is a list of batched lookups
 
+        # Profiling
+        start_timer = datetime.datetime.now()
         ly = []
         for k, sparse_index_group_batch in enumerate(lS_i):
             sparse_offset_group_batch = lS_o[k]
@@ -477,7 +479,8 @@ class DLRM_Net(nn.Module):
             )
 
             ly.append(V)
-
+        done_timer = datetime.datetime.now()
+        print("Python Profiling CPU apply_emb(): ", (done_timer - start_timer).microseconds, " μs")
         # print(ly)
         return ly
 

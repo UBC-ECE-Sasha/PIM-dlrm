@@ -924,8 +924,46 @@ def generate_dist_input_batch(
     # sparse feature (sparse indices)
     lS_emb_offsets = []
     lS_emb_indices = []
+    lS_emb_offsets_t = []
+    lS_emb_indices_t = []
     # for each embedding generate a list of n lookups,
     # where each lookup is composed of multiple sparse indices
+    
+    # Create indices and offsets tensors in a way that is memory-contiguous
+    if num_indices_per_lookup_fixed and rand_data_dist == "uniform":
+        sparse_group_size = np.int64(num_indices_per_lookup)
+        # # Indices
+        # r = ra.random(sparse_group_size * len(ln_emb) )
+        # lS_batch_indices = torch.from_numpy(np.round(r * (size - 1)).astype(np.int32))
+        # np.ascontiguousarray(lS_batch_indices, dtype=np.int32)
+
+        # # Offsets
+        # lS_batch_offsets = torch.from_numpy(np.arange(0, sparse_group_size * n + 1, sparse_group_size, dtype=np.int32))
+        # np.ascontiguousarray(lS_batch_offsets, dtype=np.int32)
+        # lS_emb_offsets.append(lS_batch_offsets)
+        # lS_emb_indices.append(lS_batch_indices)
+        # return (Xt, lS_emb_offsets, lS_emb_indices)
+
+        # Init arrays
+        lS_emb_indices_arr = np.empty((len(ln_emb), sparse_group_size * n), dtype=np.int32)
+        np.ascontiguousarray(lS_emb_indices_arr, dtype=np.int32)
+        lS_emb_offsets_arr = np.empty((len(ln_emb), n), dtype=np.int32)
+        np.ascontiguousarray(lS_emb_offsets_arr, dtype=np.int32)
+
+        for idx, size in enumerate(ln_emb):
+            # Indices
+            ind_size = sparse_group_size * n
+            r = ra.random(ind_size)
+            np.copyto(np.asarray(lS_emb_indices_arr[idx*ind_size:(idx+1)*ind_size], dtype=np.int32), np.asarray(np.round(r * (size - 1)).astype(np.int64).tolist(), dtype=np.int32))
+
+            # Offsets
+            np.copyto(lS_emb_offsets_arr[idx*n:(idx+1)*n], np.arange(0, sparse_group_size * n, sparse_group_size, dtype=np.int32))
+
+            # Append individual tensors to final offsets and indices
+            lS_emb_indices.append(torch.from_numpy(lS_emb_indices_arr[idx]))
+            lS_emb_offsets.append(torch.from_numpy(lS_emb_offsets_arr[idx]))
+        # print(lS_emb_indices, lS_emb_offsets)
+
     for size in ln_emb:
         lS_batch_offsets = []
         lS_batch_indices = []
@@ -954,7 +992,7 @@ def generate_dist_input_batch(
                 sparse_group = np.round(r * (size - 1)).astype(np.int64)
             else:
                 raise(rand_data_dist, "distribution is not supported. \
-                     please select uniform or gaussian")
+                    please select uniform or gaussian")
 
             # reset sparse_group_size in case some index duplicates were removed
             sparse_group_size = np.int64(sparse_group.size)
@@ -965,9 +1003,9 @@ def generate_dist_input_batch(
             #     print("Python Dataloader Check sparse group size not 32: ", sparse_group_size)
             # update offset for next iteration
             offset += sparse_group_size
-        lS_emb_offsets.append(torch.tensor(lS_batch_offsets, dtype=torch.int32))
-        lS_emb_indices.append(torch.tensor(lS_batch_indices, dtype=torch.int32))
-
+        lS_emb_offsets_t.append(torch.tensor(lS_batch_offsets, dtype=torch.int32))
+        lS_emb_indices_t.append(torch.tensor(lS_batch_indices, dtype=torch.int32))
+    # print(lS_emb_indices_t, lS_emb_offsets_t)
     return (Xt, lS_emb_offsets, lS_emb_indices)
 
 
