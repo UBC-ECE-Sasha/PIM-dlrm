@@ -458,10 +458,15 @@ class DLRM_Net(nn.Module):
             # PIM: Profiling
             start_timer = datetime.datetime.now()
             global final_results_tensor_array
+            global lookup_results_ptr_c
+            global lookup_results_ptr
             final_results_tensor_array = []
+            lookup_results_ptr = []
             for i in range(int(NR_TABLES)):
                 final_results_tensor_array.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
                 np.ascontiguousarray(final_results_tensor_array[i].numpy(), dtype=np.float32)
+                lookup_results_ptr.append(final_results_tensor_array[i].numpy().ctypes.data)
+            lookup_results_ptr_c =  (c_uint64 * len(lookup_results_ptr))(*lookup_results_ptr)
             end_timer = datetime.datetime.now()
             print("Python profiling: Time for final_results_tensor_array creation = ", (end_timer - start_timer).microseconds, " μs, NR_TABLES = ", int(NR_TABLES))
             
@@ -524,52 +529,48 @@ class DLRM_Net(nn.Module):
         #     np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
         # ly_create_timer = datetime.datetime.now()
         
-        lookup_results = []
-        NUM_OF_TABLES = len(lS_i)
-        DPU_SET_PTR = int(dpu_set_ptr)
-        LOOKUP_MODE = True
-        USE_DPU = True
+        # NUM_OF_TABLES = len(lS_i)
+        # DPU_SET_PTR = int(dpu_set_ptr)
+        # USE_DPU = True
 
-        prep_vars_timer = datetime.datetime.now()
+        # prep_vars_timer = datetime.datetime.now()
 
-        for k, sparse_index_group_batch in enumerate(lS_i):
-            sparse_offset_group_batch = lS_o[k]
+        # for k, sparse_index_group_batch in enumerate(lS_i):
+        #     sparse_offset_group_batch = lS_o[k]
 
-            # Extract final_results C Pointer
-            lookup_results.append(final_results_tensor_array[k].numpy().ctypes.data)
+        #     # Extract final_results C Pointer
+        #     lookup_results.append(final_results_tensor_array[k].numpy().ctypes.data)
             
-            E = emb_l[k]
-            E(
-                sparse_index_group_batch,
-                sparse_offset_group_batch,
+        #     E = emb_l[k]
+        #     E(
+        #         sparse_index_group_batch,
+        #         sparse_offset_group_batch,
+        #         per_sample_weights=None,
+        #         num_of_tables=NUM_OF_TABLES,
+        #         dpu_set_ptr=DPU_SET_PTR,
+        #         lookup_mode=LOOKUP_MODE,
+        #         use_dpu=USE_DPU,
+        #         final_results_ptr=0
+        #     )
+        # lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
+        # LOOKUP_MODE = False
+        emb_l[0](
+                lS_i[0],
+                lS_o[0],
                 per_sample_weights=None,
-                num_of_tables=NUM_OF_TABLES,
-                dpu_set_ptr=DPU_SET_PTR,
-                lookup_mode=LOOKUP_MODE,
-                use_dpu=USE_DPU,
-                final_results_ptr=0
-            )
-        lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
-        LOOKUP_MODE = False
-
-        before_last_call_timer = datetime.datetime.now()
-        # E = emb_l[0]
-        E(
-                lS_i[k],
-                lS_o[k],
-                per_sample_weights=None,
-                num_of_tables=NUM_OF_TABLES,
-                dpu_set_ptr=DPU_SET_PTR,
-                lookup_mode=LOOKUP_MODE,
-                use_dpu=USE_DPU,
-                final_results_ptr=addressof(lookup_results_c)
+                num_of_tables=len(lS_i),
+                dpu_set_ptr=int(dpu_set_ptr),
+                use_dpu=True,
+                final_results_ptr=addressof(lookup_results_ptr_c),
+                indices_ptr=addressof(ind_pointers_c),
+                offsets_ptr=addressof(off_pointers_c)
             )
         done_timer = datetime.datetime.now()
         
         # print("Python: ly creation time: ", (ly_create_timer - start_timer).microseconds, " μs")
-        print("Python apply_emb vars prep overhead: ", (prep_vars_timer - start_timer).microseconds, " μs")
-        print("Python lookup_prep loop: ", (before_last_call_timer - prep_vars_timer).microseconds, " μs")
-        print("Last call latency: ", (done_timer - before_last_call_timer).microseconds, " μs")
+        # print("Python apply_emb vars prep overhead: ", (prep_vars_timer - start_timer).microseconds, " μs")
+        # print("Python lookup_prep loop: ", (before_last_call_timer - prep_vars_timer).microseconds, " μs")
+        print("apply_emb latency: ", (done_timer - start_timer).microseconds, " μs")
 
         # using python threading
         """ def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
@@ -959,6 +960,7 @@ def inference(
     best_acc_test,
     best_auc_test,
     test_ld,
+    test_data,
     device,
     use_gpu,
     log_iter=-1,
@@ -974,10 +976,34 @@ def inference(
         # early exit if nbatches was set by the user and was exceeded
         if nbatches > 0 and i >= nbatches:
             break
-
+        
         X_test, lS_o_test, lS_i_test, T_test, W_test, CBPP_test = unpack_batch(
             testBatch
         )
+
+        # Pre-proc pointers temp
+        global ind_arr_store, off_arr_store, ind_pointers, off_pointers
+        ind_arr_store = []
+        off_arr_store = []
+        ind_pointers = []
+        off_pointers = []
+        for k, ind in enumerate(lS_i_test):
+            off = lS_o_test[k]
+
+            inds = list(ind.tolist())
+            ind_arr = (c_uint32 * len(inds))(*inds)
+            ind_arr_store.append(ind_arr)
+
+            offs = list(off.tolist())
+            off_arr = (c_uint32 * len(offs))(*offs)
+            off_arr_store.append(off_arr)
+
+            ind_pointers.append(addressof(ind_arr_store[k]))
+            off_pointers.append(addressof(off_arr_store[k]))
+        global ind_pointers_c
+        global off_pointers_c
+        ind_pointers_c = (c_uint64 * len(ind_pointers))(*ind_pointers)
+        off_pointers_c = (c_uint64 * len(off_pointers))(*off_pointers)
 
         # Skip the batch if batch size not multiple of total ranks
         if ext_dist.my_size > 1 and X_test.size(0) % ext_dist.my_size != 0:
@@ -1862,6 +1888,7 @@ def run():
                             best_acc_test,
                             best_auc_test,
                             test_ld,
+                            test_data,
                             device,
                             use_gpu,
                             log_iter,
@@ -1955,6 +1982,7 @@ def run():
                 best_acc_test,
                 best_auc_test,
                 test_ld,
+                test_data,
                 device,
                 use_gpu,
             )

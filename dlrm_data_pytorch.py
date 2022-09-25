@@ -39,6 +39,8 @@ from torch.utils.data import Dataset, RandomSampler
 import data_loader_terabyte
 import mlperf_logger
 
+from ctypes import *
+
 
 # Kaggle Display Advertising Challenge Dataset
 # dataset (str): name of dataset (Kaggle or Terabyte)
@@ -678,7 +680,7 @@ class RandomDataset(Dataset):
         # generate a batch of target (probability of a click)
         T = generate_random_output_batch(n, self.num_targets, self.round_targets)
 
-        return (X, lS_o, lS_i, T)
+        return (X, lS_o, lS_i, T, ind_pointers_c, off_pointers_c)
 
     def __len__(self):
         # WARNING: note that we produce bacthes of outputs in __getitem__
@@ -688,11 +690,12 @@ class RandomDataset(Dataset):
 
 def collate_wrapper_random_offset(list_of_tuples):
     # where each tuple is (X, lS_o, lS_i, T)
-    (X, lS_o, lS_i, T) = list_of_tuples[0]
+    (X, lS_o, lS_i, T, _, _) = list_of_tuples[0]
     return (X,
             torch.stack(lS_o),
             lS_i,
-            T)
+            T
+            )
 
 
 def collate_wrapper_random_length(list_of_tuples):
@@ -922,47 +925,51 @@ def generate_dist_input_batch(
     Xt = torch.tensor(ra.rand(n, m_den).astype(np.float32))
 
     # sparse feature (sparse indices)
-    lS_emb_offsets = []
-    lS_emb_indices = []
-    lS_emb_offsets_t = []
-    lS_emb_indices_t = []
     # for each embedding generate a list of n lookups,
     # where each lookup is composed of multiple sparse indices
     
-    # Create indices and offsets tensors in a way that is memory-contiguous
-    if num_indices_per_lookup_fixed and rand_data_dist == "uniform":
-        sparse_group_size = np.int64(num_indices_per_lookup)
-        # # Indices
-        # r = ra.random(sparse_group_size * len(ln_emb) )
-        # lS_batch_indices = torch.from_numpy(np.round(r * (size - 1)).astype(np.int32))
-        # np.ascontiguousarray(lS_batch_indices, dtype=np.int32)
+    # # Create indices and offsets tensors in a way that is memory-contiguous
+    # if num_indices_per_lookup_fixed and rand_data_dist == "uniform":
+    #     sparse_group_size = np.int64(num_indices_per_lookup)
+    #     # # Indices
+    #     # r = ra.random(sparse_group_size * len(ln_emb) )
+    #     # lS_batch_indices = torch.from_numpy(np.round(r * (size - 1)).astype(np.int32))
+    #     # np.ascontiguousarray(lS_batch_indices, dtype=np.int32)
 
-        # # Offsets
-        # lS_batch_offsets = torch.from_numpy(np.arange(0, sparse_group_size * n + 1, sparse_group_size, dtype=np.int32))
-        # np.ascontiguousarray(lS_batch_offsets, dtype=np.int32)
-        # lS_emb_offsets.append(lS_batch_offsets)
-        # lS_emb_indices.append(lS_batch_indices)
-        # return (Xt, lS_emb_offsets, lS_emb_indices)
+    #     # # Offsets
+    #     # lS_batch_offsets = torch.from_numpy(np.arange(0, sparse_group_size * n + 1, sparse_group_size, dtype=np.int32))
+    #     # np.ascontiguousarray(lS_batch_offsets, dtype=np.int32)
+    #     # lS_emb_offsets.append(lS_batch_offsets)
+    #     # lS_emb_indices.append(lS_batch_indices)
+    #     # return (Xt, lS_emb_offsets, lS_emb_indices)
 
-        # Init arrays
-        lS_emb_indices_arr = np.empty((len(ln_emb), sparse_group_size * n), dtype=np.int32)
-        np.ascontiguousarray(lS_emb_indices_arr, dtype=np.int32)
-        lS_emb_offsets_arr = np.empty((len(ln_emb), n), dtype=np.int32)
-        np.ascontiguousarray(lS_emb_offsets_arr, dtype=np.int32)
+    #     # Init arrays
+    #     lS_emb_indices_arr = np.empty((len(ln_emb), sparse_group_size * n), dtype=np.int32)
+    #     np.ascontiguousarray(lS_emb_indices_arr, dtype=np.int32)
+    #     lS_emb_offsets_arr = np.empty((len(ln_emb), n), dtype=np.int32)
+    #     np.ascontiguousarray(lS_emb_offsets_arr, dtype=np.int32)
 
-        for idx, size in enumerate(ln_emb):
-            # Indices
-            ind_size = sparse_group_size * n
-            r = ra.random(ind_size)
-            np.copyto(np.asarray(lS_emb_indices_arr[idx*ind_size:(idx+1)*ind_size], dtype=np.int32), np.asarray(np.round(r * (size - 1)).astype(np.int64).tolist(), dtype=np.int32))
+    #     for idx, size in enumerate(ln_emb):
+    #         # Indices
+    #         ind_size = sparse_group_size * n
+    #         r = ra.random(ind_size)
+    #         np.copyto(np.asarray(lS_emb_indices_arr[idx*ind_size:(idx+1)*ind_size], dtype=np.int32), np.asarray(np.round(r * (size - 1)).astype(np.int64).tolist(), dtype=np.int32))
 
-            # Offsets
-            np.copyto(lS_emb_offsets_arr[idx*n:(idx+1)*n], np.arange(0, sparse_group_size * n, sparse_group_size, dtype=np.int32))
+    #         # Offsets
+    #         np.copyto(lS_emb_offsets_arr[idx*n:(idx+1)*n], np.arange(0, sparse_group_size * n, sparse_group_size, dtype=np.int32))
 
-            # Append individual tensors to final offsets and indices
-            lS_emb_indices.append(torch.from_numpy(lS_emb_indices_arr[idx]))
-            lS_emb_offsets.append(torch.from_numpy(lS_emb_offsets_arr[idx]))
-        # print(lS_emb_indices, lS_emb_offsets)
+    #         # Append individual tensors to final offsets and indices
+    #         lS_emb_indices.append(torch.from_numpy(lS_emb_indices_arr[idx]))
+    #         lS_emb_offsets.append(torch.from_numpy(lS_emb_offsets_arr[idx]))
+    #     # print(lS_emb_indices, lS_emb_offsets)
+
+    lS_emb_offsets = []
+    lS_emb_indices = []
+
+    ind_arr_store = []
+    off_arr_store = []
+    ind_pointers = []
+    off_pointers = []
 
     for size in ln_emb:
         lS_batch_offsets = []
@@ -1003,9 +1010,27 @@ def generate_dist_input_batch(
             #     print("Python Dataloader Check sparse group size not 32: ", sparse_group_size)
             # update offset for next iteration
             offset += sparse_group_size
-        lS_emb_offsets_t.append(torch.tensor(lS_batch_offsets, dtype=torch.int32))
-        lS_emb_indices_t.append(torch.tensor(lS_batch_indices, dtype=torch.int32))
-    # print(lS_emb_indices_t, lS_emb_offsets_t)
+        lS_emb_offsets.append(torch.tensor(lS_batch_offsets, dtype=torch.int32))
+        lS_emb_indices.append(torch.tensor(lS_batch_indices, dtype=torch.int32))
+
+        # # Prep C Pointers
+        # idx = len(lS_emb_indices) - 1
+
+        # inds = list(lS_emb_indices[idx].tolist())
+        # ind_arr = (c_uint32 * len(inds))(*inds)
+        # ind_arr_store.append(ind_arr)
+
+        # offs = list(lS_emb_offsets[idx].tolist())
+        # off_arr = (c_uint32 * len(offs))(*offs)
+        # off_arr_store.append(off_arr)
+
+        # ind_pointers.append(addressof(ind_arr_store[idx]))
+        # off_pointers.append(addressof(off_arr_store[idx]))
+
+    global ind_pointers_c
+    global off_pointers_c
+    ind_pointers_c = (c_uint64 * len(ind_pointers))(*ind_pointers)
+    off_pointers_c = (c_uint64 * len(off_pointers))(*off_pointers)
     return (Xt, lS_emb_offsets, lS_emb_indices)
 
 
