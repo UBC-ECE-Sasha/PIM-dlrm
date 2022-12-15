@@ -19,6 +19,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 # others
+import os
 from os import path
 import sys
 import bisect
@@ -988,15 +989,23 @@ def generate_dist_input_batch(
             if rand_data_dist == "gaussian":
                 if rand_data_mu == -1:
                     rand_data_mu = (rand_data_max + rand_data_min) / 2.0
-                r = ra.normal(rand_data_mu, rand_data_sigma, sparse_group_size)
-                sparse_group = np.clip(r, rand_data_min, rand_data_max)
-                sparse_group = np.unique(sparse_group).astype(np.int64)
+                if(path.exists(os.getcwd()+"/sparse_group_gaussian.npy")):
+                    sparse_group = np.load('sparse_group_gaussian.npy')
+                else:
+                    r = ra.normal(rand_data_mu, rand_data_sigma, sparse_group_size)
+                    sparse_group = np.clip(r, rand_data_min, rand_data_max)
+                    sparse_group = np.unique(sparse_group).astype(np.int64)
+                    np.save('sparse_group_gaussian.npy', sparse_group)
             elif rand_data_dist == "uniform":
-                r = ra.random(sparse_group_size)
-                # if len(r) != 32:
-                #     print("Python Dataloader raw generated array size not 32: ", len(r))
-                # sparse_group = np.unique(np.round(r * (size - 1)).astype(np.int64))
-                sparse_group = np.round(r * (size - 1)).astype(np.int64)
+                if(path.exists(os.getcwd()+"/sparse_group_uniform.npy")):
+                    sparse_group = np.load('sparse_group_uniform.npy')
+                else:
+                    r = ra.random(sparse_group_size)
+                    # if len(r) != 32: 
+                    #     print("Python Dataloader raw generated array size not 32: ", len(r))
+                    # sparse_group = np.unique(np.round(r * (size - 1)).astype(np.int64))
+                    sparse_group = np.round(r * (size - 1)).astype(np.int64)
+                    np.save('sparse_group_uniform.npy', sparse_group)
             else:
                 raise(rand_data_dist, "distribution is not supported. \
                     please select uniform or gaussian")
