@@ -221,7 +221,6 @@ class LRPolicyScheduler(_LRScheduler):
                 lr = self.base_lrs
         return lr
 
-
 ### define dlrm in PyTorch ###
 class DLRM_Net(nn.Module):
     def create_mlp(self, ln, sigmoid_layer):
@@ -424,6 +423,7 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return layers(x)
     @emb_timer
+
     def apply_emb(self, lS_o, lS_i, emb_l, v_W_l):
         # WARNING: notice that we are processing the batch at once. We implicitly
         # assume that the data is laid out such that:
@@ -433,6 +433,14 @@ class DLRM_Net(nn.Module):
         # 3. for a list of embedding tables there is a list of batched lookups
 
         # Profiling
+        # input("testtesttest")
+        # test = [1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        # print(test)
+        # for i in range(10000):
+        #     for j in range(len(test)):
+        #         test[j] += test[j]
+        
+        input("Ready for perf?")
         start_timer = datetime.datetime.now()
         ly = []
         for k, sparse_index_group_batch in enumerate(lS_i):
@@ -480,7 +488,9 @@ class DLRM_Net(nn.Module):
 
             ly.append(V)
         done_timer = datetime.datetime.now()
-        print("Python Profiling CPU apply_emb(): ", (done_timer - start_timer).microseconds, " μs")
+        # print("Python Profiling CPU apply_emb(): ", (done_timer - start_timer).microseconds, " μs")
+        print((done_timer - start_timer).microseconds)
+        input("End perf!")
         # print(ly)
         return ly
 
@@ -1777,6 +1787,9 @@ def run():
                 )
         else:
             print("Testing for inference only")
+            
+            # input("Ready for HTOP")
+            
             inference(
                 args,
                 dlrm,

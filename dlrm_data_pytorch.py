@@ -236,6 +236,7 @@ class CriteoDataset(Dataset):
                     print("Randomized indices per day ...")
 
                 train_indices = np.concatenate(indices[:-1])
+                
                 test_indices = indices[-1]
                 test_indices, val_indices = np.array_split(test_indices, 2)
 
@@ -299,6 +300,72 @@ class CriteoDataset(Dataset):
         if self.max_ind_range > 0:
             return self.X_int[i], self.X_cat[i] % self.max_ind_range, self.y[i]
         else:
+            # # PIM: MOD
+            # # We know format must be the same as Random at this point
+            # # Modify here same as Random, X_cat = offsets, y = indices
+            # lS_emb_offsets = []
+            # lS_emb_indices = []
+            # ind_pointers = []
+            # off_pointers = []
+            # for size in len(self.X_cat):
+            #     lS_batch_offsets = []
+            #     lS_batch_indices = []
+            #     offset = 0
+            #     for _ in range(n):
+            #         if num_indices_per_lookup_fixed:
+            #             sparse_group_size = np.int64(num_indices_per_lookup)
+            #         else:
+            #             # random between [1,num_indices_per_lookup])
+            #             r = ra.random(1)
+            #             sparse_group_size = np.int64(
+            #                 np.round(max([1.0], r * min(size, num_indices_per_lookup)))
+            #             )
+            #         # sparse indices to be used per embedding
+            #         if rand_data_dist == "gaussian":
+            #             if rand_data_mu == -1:
+            #                 rand_data_mu = (rand_data_max + rand_data_min) / 2.0
+            #             r = ra.normal(rand_data_mu, rand_data_sigma, sparse_group_size)
+            #             sparse_group = np.clip(r, rand_data_min, rand_data_max)
+            #             sparse_group = np.unique(sparse_group).astype(np.int64)
+            #         elif rand_data_dist == "uniform":
+            #             r = ra.random(sparse_group_size)
+            #             # if len(r) != 32:
+            #             #     print("Python Dataloader raw generated array size not 32: ", len(r))
+            #             # sparse_group = np.unique(np.round(r * (size - 1)).astype(np.int64))
+            #             sparse_group = np.round(r * (size - 1)).astype(np.int64)
+            #         else:
+            #             raise(rand_data_dist, "distribution is not supported. \
+            #                 please select uniform or gaussian")
+
+            #         # reset sparse_group_size in case some index duplicates were removed
+            #         sparse_group_size = np.int64(sparse_group.size)
+            #         # store lengths and indices
+            #         lS_batch_offsets += [offset]
+            #         lS_batch_indices += sparse_group.tolist()
+            #         # if sparse_group_size != 32:
+            #         #     print("Python Dataloader Check sparse group size not 32: ", sparse_group_size)
+            #         # update offset for next iteration
+            #         offset += sparse_group_size
+            #     lS_emb_offsets.append(torch.tensor(lS_batch_offsets, dtype=torch.int32))
+            #     lS_emb_indices.append(torch.tensor(lS_batch_indices, dtype=torch.int32))
+
+            #     # # Prep C Pointers
+            #     # idx = len(lS_emb_indices) - 1
+
+            #     # inds = list(lS_emb_indices[idx].tolist())
+            #     # ind_arr = (c_uint32 * len(inds))(*inds)
+            #     # ind_arr_store.append(ind_arr)
+
+            #     # offs = list(lS_emb_offsets[idx].tolist())
+            #     # off_arr = (c_uint32 * len(offs))(*offs)
+            #     # off_arr_store.append(off_arr)
+
+            #     # ind_pointers.append(addressof(ind_arr_store[idx]))
+            #     # off_pointers.append(addressof(off_arr_store[idx]))
+            
+            # return self.X_int, lS_emb_offsets, lS_emb_indices
+            
+            # Original
             return self.X_int[i], self.X_cat[i], self.y[i]
 
     def _default_preprocess(self, X_int, X_cat, y):
@@ -535,6 +602,8 @@ def make_criteo_data_and_loaders(args, offset_to_length_converter=False):
             args.dataset_multiprocessing,
         )
 
+        
+        # PIM: TO MOD
         test_data = CriteoDataset(
             args.data_set,
             args.max_ind_range,
@@ -965,9 +1034,6 @@ def generate_dist_input_batch(
 
     lS_emb_offsets = []
     lS_emb_indices = []
-
-    ind_arr_store = []
-    off_arr_store = []
     ind_pointers = []
     off_pointers = []
 

@@ -318,6 +318,7 @@ class DLRM_Net(nn.Module):
                 for j in range(0, nr_cols):
                     emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
+            
             runtimes = pointer(DpuRuntimeTotals())
             global dpu_set_ptr
             dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
@@ -521,6 +522,8 @@ class DLRM_Net(nn.Module):
 
         # Profiling
         start_timer = datetime.datetime.now()
+        
+        input("ready:")
 
         # Prep ly array, move this creation elsewhere
         # ly = []
@@ -565,6 +568,8 @@ class DLRM_Net(nn.Module):
                 indices_ptr=addressof(ind_pointers_c),
                 offsets_ptr=addressof(off_pointers_c)
             )
+        
+        input("done!")
         done_timer = datetime.datetime.now()
         
         # print("Python: ly creation time: ", (ly_create_timer - start_timer).microseconds, " μs")
@@ -1976,6 +1981,7 @@ def run():
                 )
         else:
             print("Testing for inference only")
+        
             inference(
                 args,
                 dlrm,
