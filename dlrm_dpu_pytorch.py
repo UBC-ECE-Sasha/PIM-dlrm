@@ -523,7 +523,7 @@ class DLRM_Net(nn.Module):
         # Profiling
         start_timer = datetime.datetime.now()
         
-        input("ready:")
+        # input("ready:")
 
         # Prep ly array, move this creation elsewhere
         # ly = []
@@ -569,7 +569,7 @@ class DLRM_Net(nn.Module):
                 offsets_ptr=addressof(off_pointers_c)
             )
         
-        input("done!")
+        # input("done!")
         done_timer = datetime.datetime.now()
         
         # print("Python: ly creation time: ", (ly_create_timer - start_timer).microseconds, " μs")
@@ -1302,7 +1302,7 @@ def run():
         print("Using {} GPU(s)...".format(ngpus))
     else:
         device = torch.device("cpu")
-        print("Using CPU...")
+        print("Using DPU...")       # PIM Testing
 
     ### prepare training data ###
     ln_bot = np.fromstring(args.arch_mlp_bot, dtype=int, sep="-")
