@@ -304,29 +304,42 @@ class DLRM_Net(nn.Module):
         my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32), POINTER(DpuRuntimeTotals)
         my_functions.populate_mram.restype= c_void_p
 
-        
+        # input("export emb call start")
         # Profiling
         start_timer = datetime.datetime.now()
+        
+        # emb_data = []
         for k in range(0, len(emb_l)):
             emb_data=[]
-            tmp_emb = list(emb_l[k].parameters())[0].tolist()
+            tmp_emb = np.rint(list(emb_l[k].parameters())[0].detach().numpy()*(10**9)).astype(int)
+            tmp_emb = np.transpose(tmp_emb)
+            tmp_emb = np.ascontiguousarray(tmp_emb)
             
-            nr_rows=len(tmp_emb)
-            nr_cols=len(tmp_emb[0])
+            nr_rows=len(list(emb_l[k].parameters())[0])
+            nr_cols=len(list(emb_l[k].parameters())[0][0])
 
-            for i in range(0, nr_rows):
-                for j in range(0, nr_cols):
-                    emb_data.append(int(round(tmp_emb[i][j]*(10**9))))
+            # input("iter: " + str(k) + " , right before appends")
+            
+            for i in range(0, nr_cols):
+                emb_data.extend(tmp_emb[i])
+                # for j in range(0, nr_rows):
+                #     emb_data.append(tmp_emb[i][j])
             data_pointer=(c_int32*(len(emb_data)))(*emb_data)
+            
+            tmp_emb = []
             
             runtimes = pointer(DpuRuntimeTotals())
             global dpu_set_ptr
+            # input("iter: " + str(k) + " , right before pop_mram()")
+            
             dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
             #print("DPU SET PTR: ", dpu_set_ptr)
+            
+            # input("done table " + str(k))
 
         #my_functions.toy_function()
         end_timer = datetime.datetime.now()
-        print("Python profiling: Time for populate_mram = ", (end_timer - start_timer).microseconds, " μs")
+        print("Python profiling: Time for populate_mram = ", (end_timer - start_timer).seconds, " s")
         return
     # dpu
 
@@ -523,7 +536,7 @@ class DLRM_Net(nn.Module):
         # Profiling
         start_timer = datetime.datetime.now()
         
-        # input("ready:")
+        input("ready:")
 
         # Prep ly array, move this creation elsewhere
         # ly = []
@@ -569,7 +582,7 @@ class DLRM_Net(nn.Module):
                 offsets_ptr=addressof(off_pointers_c)
             )
         
-        # input("done!")
+        input("done!")
         done_timer = datetime.datetime.now()
         
         # print("Python: ly creation time: ", (ly_create_timer - start_timer).microseconds, " μs")
