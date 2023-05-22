@@ -70,7 +70,6 @@ import datetime
 import json
 import sys
 import time
-
 # onnx
 # The onnx import causes deprecation warnings every time workers
 # are spawned during testing. So, we filter out those warnings.
@@ -120,7 +119,7 @@ from ctypes import *
 import sys		
 sys.path.append('../..')		
 import dputypes		
-from ctypes import *			
+from ctypes import *
 so_file="./emblib.so"		
 my_functions=CDLL(so_file)		
 from dputypes import *			
@@ -301,7 +300,7 @@ class DLRM_Net(nn.Module):
     # dpu
     def export_emb(self, emb_l):
 
-        my_functions.populate_mram.argtypes = c_uint32, c_uint64, POINTER(c_int32), POINTER(DpuRuntimeTotals)
+        my_functions.populate_mram.argtypes = c_uint32, c_uint64, c_uint32, POINTER(c_int32), POINTER(DpuRuntimeTotals)
         my_functions.populate_mram.restype= c_void_p
 
         # input("export emb call start")
@@ -310,7 +309,7 @@ class DLRM_Net(nn.Module):
         
         # emb_data = []
         for k in range(0, len(emb_l)):
-            emb_data=[]
+            # emb_data=[]
             tmp_emb = np.rint(list(emb_l[k].parameters())[0].detach().numpy()*(10**9)).astype(int)
             tmp_emb = np.transpose(tmp_emb)
             tmp_emb = np.ascontiguousarray(tmp_emb)
@@ -320,22 +319,31 @@ class DLRM_Net(nn.Module):
 
             # input("iter: " + str(k) + " , right before appends")
             
+            global dpu_set_ptr
             for i in range(0, nr_cols):
-                emb_data.extend(tmp_emb[i])
+                data_pointer=(c_int32*(len(tmp_emb[i])))(*(tmp_emb[i]))
+                runtimes = pointer(DpuRuntimeTotals())
+                
+                dpu_set_ptr=my_functions.populate_mram(k,nr_rows,i,data_pointer,runtimes)
+                
+                # # OLD: Optimized-per-table
+                # emb_data.extend(tmp_emb[i])
+                
+                # # OLD: Naive
                 # for j in range(0, nr_rows):
                 #     emb_data.append(tmp_emb[i][j])
-            data_pointer=(c_int32*(len(emb_data)))(*emb_data)
+                
+            # # OLD: Optimized-per-table
+            # data_pointer=(c_int32*(len(emb_data)))(*emb_data)
             
             tmp_emb = []
-            
-            runtimes = pointer(DpuRuntimeTotals())
-            global dpu_set_ptr
-            # input("iter: " + str(k) + " , right before pop_mram()")
-            
-            dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
-            #print("DPU SET PTR: ", dpu_set_ptr)
-            
-            # input("done table " + str(k))
+            # emb_data = []
+            # runtimes = pointer(DpuRuntimeTotals())
+            # global dpu_set_ptr
+            # # input("iter: " + str(k) + " , right before pop_mram()")            
+            # dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
+            # # print("DPU SET PTR: ", dpu_set_ptr)
+            # # input("done table " + str(k))
 
         #my_functions.toy_function()
         end_timer = datetime.datetime.now()
@@ -536,7 +544,7 @@ class DLRM_Net(nn.Module):
         # Profiling
         start_timer = datetime.datetime.now()
         
-        input("ready:")
+        # input("ready:")
 
         # Prep ly array, move this creation elsewhere
         # ly = []
@@ -582,7 +590,7 @@ class DLRM_Net(nn.Module):
                 offsets_ptr=addressof(off_pointers_c)
             )
         
-        input("done!")
+        # input("done!")
         done_timer = datetime.datetime.now()
         
         # print("Python: ly creation time: ", (ly_create_timer - start_timer).microseconds, " μs")
