@@ -254,6 +254,11 @@ class LRPolicyScheduler(_LRScheduler):
                 lr = self.base_lrs
         return lr
 
+def cycle_count():
+    if not hasattr(cycle_count, "counter"):
+        cycle_count.counter = 0
+        
+    cycle_count.counter += 1
 
 ### define dlrm in PyTorch ###
 class DLRM_Net(nn.Module):
@@ -531,7 +536,7 @@ class DLRM_Net(nn.Module):
         # return x
         # approach 2: use Sequential container to wrap all layers
         return layers(x)
-
+    
     @emb_timer
     def apply_emb(self, lS_o, lS_i, emb_l, v_W_l):
         # WARNING: notice that we are processing the batch at once. We implicitly
@@ -542,42 +547,15 @@ class DLRM_Net(nn.Module):
         # 3. for a list of embedding tables there is a list of batched lookups
 
         # Profiling
-        start_timer = datetime.datetime.now()
+        # start_timer = datetime.datetime.now()
         
-        # input("ready:")
-
-        # Prep ly array, move this creation elsewhere
-        # ly = []
-        # for i in range(len(lS_i)):
-        #     ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
-        #     np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
-        # ly_create_timer = datetime.datetime.now()
+        print_lat = 0
+        cycle_count()
+        if cycle_count.counter > 25:
+            print_lat = 1
+        else:
+            input("ready")
         
-        # NUM_OF_TABLES = len(lS_i)
-        # DPU_SET_PTR = int(dpu_set_ptr)
-        # USE_DPU = True
-
-        # prep_vars_timer = datetime.datetime.now()
-
-        # for k, sparse_index_group_batch in enumerate(lS_i):
-        #     sparse_offset_group_batch = lS_o[k]
-
-        #     # Extract final_results C Pointer
-        #     lookup_results.append(final_results_tensor_array[k].numpy().ctypes.data)
-            
-        #     E = emb_l[k]
-        #     E(
-        #         sparse_index_group_batch,
-        #         sparse_offset_group_batch,
-        #         per_sample_weights=None,
-        #         num_of_tables=NUM_OF_TABLES,
-        #         dpu_set_ptr=DPU_SET_PTR,
-        #         lookup_mode=LOOKUP_MODE,
-        #         use_dpu=USE_DPU,
-        #         final_results_ptr=0
-        #     )
-        # lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
-        # LOOKUP_MODE = False
         emb_l[0](
                 lS_i[0],
                 lS_o[0],
@@ -587,16 +565,55 @@ class DLRM_Net(nn.Module):
                 use_dpu=True,
                 final_results_ptr=addressof(lookup_results_ptr_c),
                 indices_ptr=addressof(ind_pointers_c),
-                offsets_ptr=addressof(off_pointers_c)
+                offsets_ptr=addressof(off_pointers_c),
+                latency_print=print_lat
             )
         
-        # input("done!")
-        done_timer = datetime.datetime.now()
+        if cycle_count.counter <= 25:
+            input("done!")
+            
+        # done_timer = datetime.datetime.now()
         
         # print("Python: ly creation time: ", (ly_create_timer - start_timer).microseconds, " μs")
         # print("Python apply_emb vars prep overhead: ", (prep_vars_timer - start_timer).microseconds, " μs")
         # print("Python lookup_prep loop: ", (before_last_call_timer - prep_vars_timer).microseconds, " μs")
-        print("apply_emb latency: ", (done_timer - start_timer).microseconds, " μs")
+        # print("apply_emb latency: ", (done_timer - start_timer).microseconds, " μs")
+        
+        # old
+        """ 
+        Prep ly array, move this creation elsewhere
+        ly = []
+        for i in range(len(lS_i)):
+            ly.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
+            np.ascontiguousarray(ly[i].numpy(), dtype=np.float32)
+        ly_create_timer = datetime.datetime.now()
+        
+        NUM_OF_TABLES = len(lS_i)
+        DPU_SET_PTR = int(dpu_set_ptr)
+        USE_DPU = True
+
+        prep_vars_timer = datetime.datetime.now()
+
+        for k, sparse_index_group_batch in enumerate(lS_i):
+            sparse_offset_group_batch = lS_o[k]
+
+            # Extract final_results C Pointer
+            lookup_results.append(final_results_tensor_array[k].numpy().ctypes.data)
+            
+            E = emb_l[k]
+            E(
+                sparse_index_group_batch,
+                sparse_offset_group_batch,
+                per_sample_weights=None,
+                num_of_tables=NUM_OF_TABLES,
+                dpu_set_ptr=DPU_SET_PTR,
+                lookup_mode=LOOKUP_MODE,
+                use_dpu=USE_DPU,
+                final_results_ptr=0
+            )
+        lookup_results_c = (c_uint64 * len(lookup_results))(*lookup_results)
+        LOOKUP_MODE = False
+        # """
 
         # using python threading
         """ def dpu_lookup(sparse_offset_group_batch, sparse_index_group_batch, k):
@@ -1009,6 +1026,8 @@ def inference(
 
         # Pre-proc pointers temp
         global ind_arr_store, off_arr_store, ind_pointers, off_pointers
+        # global cycle_count
+        # cycle_count = 0
         ind_arr_store = []
         off_arr_store = []
         ind_pointers = []
