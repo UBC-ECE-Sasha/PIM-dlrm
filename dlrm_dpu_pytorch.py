@@ -549,12 +549,12 @@ class DLRM_Net(nn.Module):
         # Profiling
         # start_timer = datetime.datetime.now()
         
-        print_lat = 0
+        print_lat = 1
         cycle_count()
         if cycle_count.counter > 25:
             print_lat = 1
-        else:
-            input("ready")
+        # else:
+        #     input("ready")
         
         emb_l[0](
                 lS_i[0],
@@ -569,8 +569,8 @@ class DLRM_Net(nn.Module):
                 latency_print=print_lat
             )
         
-        if cycle_count.counter <= 25:
-            input("done!")
+        # if cycle_count.counter <= 25:
+        #     input("done!")
             
         # done_timer = datetime.datetime.now()
         

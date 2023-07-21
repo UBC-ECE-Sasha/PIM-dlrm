@@ -440,8 +440,8 @@ class DLRM_Net(nn.Module):
         #     for j in range(len(test)):
         #         test[j] += test[j]
         
-        input("Ready for perf?")
-        # start_timer = datetime.datetime.now()
+        # input("Ready for perf?")
+        start_timer = datetime.datetime.now()
         
         ly = []
         for k, sparse_index_group_batch in enumerate(lS_i):
@@ -489,10 +489,10 @@ class DLRM_Net(nn.Module):
 
             ly.append(V)
             
-        # done_timer = datetime.datetime.now()
+        done_timer = datetime.datetime.now()
         # print("Python Profiling CPU apply_emb(): ", (done_timer - start_timer).microseconds, " μs")
-        # print((done_timer - start_timer).microseconds)
-        input("End perf!")
+        print((done_timer - start_timer).microseconds)
+        # input("End perf!")
         
         # print(ly)
         return ly
