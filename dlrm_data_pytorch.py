@@ -749,7 +749,7 @@ class RandomDataset(Dataset):
         # generate a batch of target (probability of a click)
         T = generate_random_output_batch(n, self.num_targets, self.round_targets)
 
-        return (X, lS_o, lS_i, T, ind_pointers_c, off_pointers_c)
+        return (X, lS_o, lS_i, T, ind_pointers_c, off_pointers_c)   # PIM: Last 2 not used
 
     def __len__(self):
         # WARNING: note that we produce bacthes of outputs in __getitem__

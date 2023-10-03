@@ -82,7 +82,7 @@ def _transform_features(
 
     batch_size = x_cat_batch.shape[0]
     feature_count = x_cat_batch.shape[1]
-    lS_o = torch.arange(batch_size).reshape(1, -1).repeat(feature_count, 1)
+    lS_o = torch.arange(batch_size).reshape(1, -1).repeat(feature_count, 1) # PIM: POI
 
     return x_int_batch, lS_o, x_cat_batch.t(), y_batch.view(-1, 1)
 

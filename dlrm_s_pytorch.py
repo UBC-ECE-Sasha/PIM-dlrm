@@ -433,13 +433,6 @@ class DLRM_Net(nn.Module):
         # 3. for a list of embedding tables there is a list of batched lookups
 
         # Profiling
-        # input("testtesttest")
-        # test = [1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-        # print(test)
-        # for i in range(10000):
-        #     for j in range(len(test)):
-        #         test[j] += test[j]
-        
         # input("Ready for perf?")
         start_timer = datetime.datetime.now()
         
@@ -623,23 +616,49 @@ class DLRM_Net(nn.Module):
         return z
 
     def sequential_forward(self, dense_x, lS_o, lS_i):
-        # process dense features (using bottom mlp), resulting in a row vector
-        x = self.apply_mlp(dense_x, self.bot_l)
-        # debug prints
-        # print("intermediate")
-        # print(x.detach().cpu().numpy())
+        with open("ITEMS.txt", "w") as file:
+            # process dense features (using bottom mlp), resulting in a row vector
+            x = self.apply_mlp(dense_x, self.bot_l)
+            # debug prints
+            # print("intermediate")
+            # print(x.detach().cpu().numpy())
 
-        # process sparse features(using embeddings), resulting in a list of row vectors
-        ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
-        # for y in ly:
-        #     print(y.detach().cpu().numpy())
+            # Get structure
+            file.write("\n1. FC Layer output:\n")
+            for item in x.detach().cpu().numpy():
+                file.write(" ".join(str(item)) + "\n")
 
-        # interact features (dense and sparse)
-        z = self.interact_features(x, ly)
-        # print(z.detach().cpu().numpy())
+            # process sparse features(using embeddings), resulting in a list of row vectors
+            ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
+            # for y in ly:
+            #     print(y.detach().cpu().numpy())
 
-        # obtain probability of a click (using top mlp)
-        p = self.apply_mlp(z, self.top_l)
+            # Get structure
+            file.write("\n2. Embedding Layer output:\n")
+            for item in ly:
+                file.write("[\n")
+                for item2 in item.detach().cpu().numpy():
+                    file.write(" ".join(str(item2)) + "\n")
+                file.write("]\n")
+
+            # interact features (dense and sparse)
+            z = self.interact_features(x, ly)
+            # print(z.detach().cpu().numpy())
+
+            # Get structure
+            file.write("\n3. Sum/Dot/Cat operation output:\n")
+            for item in z.detach().cpu().numpy():
+                file.write(" ".join(str(item)) + "\n")
+
+            # obtain probability of a click (using top mlp)
+            p = self.apply_mlp(z, self.top_l)
+
+            # Get structure
+            file.write("\n4. Output probabilities:\n")
+            for item in p.detach().cpu().numpy():
+                file.write(" ".join(str(item)) + "\n")
+
+        exit()
 
         # clamp output if needed
         if 0.0 < self.loss_threshold and self.loss_threshold < 1.0:

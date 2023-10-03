@@ -305,52 +305,64 @@ class DLRM_Net(nn.Module):
     # dpu
     def export_emb(self, emb_l):
 
-        my_functions.populate_mram.argtypes = c_uint32, c_uint64, c_uint32, POINTER(c_int32), POINTER(DpuRuntimeTotals)
-        my_functions.populate_mram.restype= c_void_p
+        my_functions.populate_mram_sg.argtypes = c_uint32, POINTER(c_uint32), POINTER(c_int32), POINTER(c_int32), POINTER(DpuRuntimeTotals)
+        my_functions.populate_mram_sg.restype= c_void_p
 
         # input("export emb call start")
         # Profiling
         start_timer = datetime.datetime.now()
         
-        # emb_data = []
-        for k in range(0, len(emb_l)):
-            # emb_data=[]
-            tmp_emb = np.rint(list(emb_l[k].parameters())[0].detach().numpy()*(10**9)).astype(int)
+        emb_ptr_arr = []
+        row_lens = np.array(len(emb_l), dtype=np.uint32)
+        col_lens = np.array(len(emb_l), dtype=np.uint32)
+        for k in range(len(emb_l)):
+            tmp_emb = np.rint(list(emb_l[k].parameters())[0].detach().numpy() * (10 ** 9)).astype(int)
             tmp_emb = np.transpose(tmp_emb)
             tmp_emb = np.ascontiguousarray(tmp_emb)
             
-            nr_rows=len(list(emb_l[k].parameters())[0])
-            nr_cols=len(list(emb_l[k].parameters())[0][0])
+            # Should be same across single table
+            row_lens[k] = len(list(emb_l[k].parameters())[0])
+            col_lens[k] = len(list(emb_l[k].parameters())[0][0])
 
-            # input("iter: " + str(k) + " , right before appends")
+            # process pointers for accessing emb_data
+            tmp_ptr = []
+            for i in range(col_lens[k]):
+                ptr = (c_int32 * (len(tmp_emb[i])))(*(tmp_emb[i]))      # Changed "C_int32" to lower case, unsure effect
+                tmp_ptr.append(addressof(ptr))
+            table_ptr = (c_uint64 * len(tmp_ptr))(*tmp_ptr)
+            emb_ptr_arr.append(addressof(table_ptr))
             
-            global dpu_set_ptr
-            for i in range(0, nr_cols):
-                data_pointer=(c_int32*(len(tmp_emb[i])))(*(tmp_emb[i]))
-                runtimes = pointer(DpuRuntimeTotals())
+            # # Old - Pre-scatter-gather implementation
+            # global dpu_set_ptr
+            # for i in range(0, nr_cols):
+            #     data_pointer=(c_int32*(len(tmp_emb[i])))(*(tmp_emb[i]))
+            #     runtimes = pointer(DpuRuntimeTotals())
                 
-                dpu_set_ptr=my_functions.populate_mram(k,nr_rows,i,data_pointer,runtimes)
+            #     dpu_set_ptr=my_functions.populate_mram(k,nr_rows,i,data_pointer,runtimes)
                 
-                # # OLD: Optimized-per-table
-                # emb_data.extend(tmp_emb[i])
+            #     # # OLD: Optimized-per-table
+            #     # emb_data.extend(tmp_emb[i])
                 
-                # # OLD: Naive
-                # for j in range(0, nr_rows):
-                #     emb_data.append(tmp_emb[i][j])
+            #     # # OLD: Naive
+            #     # for j in range(0, nr_rows):
+            #     #     emb_data.append(tmp_emb[i][j])
                 
             # # OLD: Optimized-per-table
             # data_pointer=(c_int32*(len(emb_data)))(*emb_data)
             
-            tmp_emb = []
-            # emb_data = []
-            # runtimes = pointer(DpuRuntimeTotals())
-            # global dpu_set_ptr
-            # # input("iter: " + str(k) + " , right before pop_mram()")            
-            # dpu_set_ptr=my_functions.populate_mram(k,nr_rows,data_pointer,runtimes)
-            # # print("DPU SET PTR: ", dpu_set_ptr)
-            # # input("done table " + str(k))
+        # PIM TODO: Test
+        emb_ptr = (c_uint64 * len(emb_ptr_arr))(*emb_ptr_arr)
+        row_lens_c = row_lens.data_as(ctypes.POINTER(ctypes.c_uint32 * len(emb_l))).contents
+        col_lens_c = col_lens.data_as(ctypes.POINTER(ctypes.c_uint32 * len(emb_l))).contents
+        runtimes = pointer(DpuRuntimeTotals())
+        global dpu_set_ptr         
+        dpu_set_ptr=my_functions.populate_mram_sg(
+            len(emb_l), 
+            addressof(row_lens_c), 
+            addressof(col_lens_c), 
+            addressof(emb_ptr),
+            runtimes)
 
-        #my_functions.toy_function()
         end_timer = datetime.datetime.now()
         print("Python profiling: Time for populate_mram = ", (end_timer - start_timer).seconds, " s")
         return
@@ -403,8 +415,9 @@ class DLRM_Net(nn.Module):
                 v_W_l.append(torch.ones(n, dtype=torch.float32))
             emb_l.append(EE)
 
-        if args.data_generation == "random":
-            self.export_emb(emb_l)
+        # PIM: Run export_emb for real data too
+        # if args.data_generation == "random":
+        self.export_emb(emb_l)
     
         return emb_l, v_W_l
 
@@ -549,28 +562,36 @@ class DLRM_Net(nn.Module):
         # Profiling
         # start_timer = datetime.datetime.now()
         
-        print_lat = 1
+        print_lat = 0
         cycle_count()
         if cycle_count.counter > 25:
-            print_lat = 1
-        # else:
-        #     input("ready")
+            print_lat = 0
+            start_timer = datetime.datetime.now()
+        else:
+            input("ready")
         
+        # TODO: Add array holding #col and #row for each table, should create at inference() line 1041
+
         emb_l[0](
-                lS_i[0],
-                lS_o[0],
+                lS_i[0],        # No longer used
+                lS_o[0],        # No longer used
                 per_sample_weights=None,
-                num_of_tables=len(lS_i),
+                num_of_tables=len(emb_l),
                 dpu_set_ptr=int(dpu_set_ptr),
                 use_dpu=True,
                 final_results_ptr=addressof(lookup_results_ptr_c),
                 indices_ptr=addressof(ind_pointers_c),
                 offsets_ptr=addressof(off_pointers_c),
+                indices_len=addressof(ind_len_c),       #new
+                offsets_len=addressof(off_len_c),       #new
                 latency_print=print_lat
-            )
+            )       # TODO: Add args for per table #row and #cols
         
-        # if cycle_count.counter <= 25:
-        #     input("done!")
+        if cycle_count.counter <= 25:
+            input("done!")
+        else:
+            done_timer = datetime.datetime.now()
+            print((done_timer - start_timer).microseconds)
             
         # done_timer = datetime.datetime.now()
         
@@ -1025,11 +1046,13 @@ def inference(
         )
 
         # Pre-proc pointers temp
-        global ind_arr_store, off_arr_store, ind_pointers, off_pointers
+        global ind_arr_store, off_arr_store, ind_pointers, off_pointers, ind_arr_len, off_arr_len
         # global cycle_count
         # cycle_count = 0
         ind_arr_store = []
         off_arr_store = []
+        ind_arr_len = np.array(len(lS_i_test), dtype=np.uint32)
+        off_arr_len = np.array(len(lS_i_test), dtype=np.uint32)
         ind_pointers = []
         off_pointers = []
         for k, ind in enumerate(lS_i_test):
@@ -1038,17 +1061,23 @@ def inference(
             inds = list(ind.tolist())
             ind_arr = (c_uint32 * len(inds))(*inds)
             ind_arr_store.append(ind_arr)
+            ind_arr_len[k] = len(inds)
 
             offs = list(off.tolist())
             off_arr = (c_uint32 * len(offs))(*offs)
             off_arr_store.append(off_arr)
+            off_arr_len[k] = len(offs)
 
             ind_pointers.append(addressof(ind_arr_store[k]))
             off_pointers.append(addressof(off_arr_store[k]))
         global ind_pointers_c
         global off_pointers_c
+        global ind_len_c
+        global off_len_c
         ind_pointers_c = (c_uint64 * len(ind_pointers))(*ind_pointers)
         off_pointers_c = (c_uint64 * len(off_pointers))(*off_pointers)
+        ind_len_c = ind_arr_len.data_as(ctypes.POINTER(ctypes.c_uint32 * len(lS_i_test))).contents
+        off_len_c = off_arr_len.data_as(ctypes.POINTER(ctypes.c_uint32 * len(lS_i_test))).contents
 
         # Skip the batch if batch size not multiple of total ranks
         if ext_dist.my_size > 1 and X_test.size(0) % ext_dist.my_size != 0:
