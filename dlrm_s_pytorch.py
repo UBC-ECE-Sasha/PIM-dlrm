@@ -110,6 +110,11 @@ with warnings.catch_warnings():
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
+def write_batches(number):
+    print("DEBUG: nbatches written")
+    global nbatches 
+    nbatches = number
+
 def emb_timer(method):
     times = []
     
@@ -119,7 +124,7 @@ def emb_timer(method):
         te = time.process_time_ns()
        
         times.append(te-ts)
-        if (len(times)%nbatches==0):
+        if (len(times)%nbatches==0):        # MLPerf bug - nbatches not defined as run() not ran
             print('%r  %f ns (%f ns)' % \
                 (method.__name__, (te - ts), (sum(times) / len(times)) )+" ,iteration="+str(len(times)))
 
@@ -309,6 +314,8 @@ class DLRM_Net(nn.Module):
             else:
                 v_W_l.append(torch.ones(n, dtype=torch.float32))
             emb_l.append(EE)
+
+        print("MLPERF CHECK - SEE IF CREATE EMB HERE")
         return emb_l, v_W_l
 
     def __init__(
