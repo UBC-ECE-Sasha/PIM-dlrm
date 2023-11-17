@@ -486,6 +486,7 @@ def collate_wrapper_criteo_length(list_of_tuples):
 
 
 def make_criteo_data_and_loaders(args, offset_to_length_converter=False):
+    print("DEBUG: IN CRITEO DATA AND LOADERS, data_set = ". args.data_set)
     if args.mlperf_logging and args.memory_map and args.data_set == "terabyte":
         # more efficient for larger batches
         data_directory = path.dirname(args.raw_data_file)

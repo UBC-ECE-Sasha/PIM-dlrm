@@ -123,6 +123,10 @@ def _batch_generator(
             x_int_batch = x_int[current_slice]
             x_cat_batch = x_cat[current_slice]
             y_batch = y[current_slice]
+            print("x_int len: ", len(x_int))
+            print("x_cat len: ", len(x_cat))
+            print("y len: ", len(y))
+            input("WAIT")
 
             if previous_file is not None:
                 x_int_batch = np.concatenate(

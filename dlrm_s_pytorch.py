@@ -375,6 +375,8 @@ class DLRM_Net(nn.Module):
             if self.md_flag:
                 self.md_threshold = md_threshold
 
+            print("MLPERF CHECK - IN DLRM_NET INIT()")
+
             # If running distributed, get local slice of embedding tables
             if ext_dist.my_size > 1:
                 n_emb = len(ln_emb)

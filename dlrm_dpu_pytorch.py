@@ -115,23 +115,36 @@ with warnings.catch_warnings():
         print("Unable to import onnx. ", error)
 
 from ctypes import *
+import ctypes   # Bandaid fix for ARRAY.ctypes.data_as() ref
 #dpu		
-import sys		
-sys.path.append('../..')		
+# import sys		
+import os
+
+try: 
+    pim_emb_path = os.environ["PIM_DIR"]
+    sys.path.append(pim_emb_path + "/upmem")	
+except KeyError:
+    print("ERROR: Please set PIM_DIR environment variable to the PIM-Embedding-Lookup repo directory")
+    sys.exit(0)
+
 import dputypes		
 from ctypes import *
-so_file="./emblib.so"		
+so_file = pim_emb_path + "/upmem/build/release/emblib.so"		
 my_functions=CDLL(so_file)		
 from dputypes import *			
 
-import os
-NR_TABLES = os.environ["NR_TABLES"]
+# NR_TABLES = os.environ["NR_TABLES"]
 #dpu		
 #dpu
 
 # from torchviz import make_dot
 # import torch.nn.functional as Functional
 # from torch.nn.parameter import Parameter
+
+def write_batches(number):
+    global nbatches 
+    nbatches = number
+    print("DEBUG: nbatches written: " + str(nbatches))
 
 exc = getattr(builtins, "IOError", "FileNotFoundError")
 
@@ -305,32 +318,38 @@ class DLRM_Net(nn.Module):
     # dpu
     def export_emb(self, emb_l):
 
-        my_functions.populate_mram_sg.argtypes = c_uint32, POINTER(c_uint32), POINTER(c_int32), POINTER(c_int32), POINTER(DpuRuntimeTotals)
+        my_functions.populate_mram_sg.argtypes = c_uint32, POINTER(c_uint32), POINTER(c_uint32), POINTER(c_uint64), POINTER(DpuRuntimeTotals)
         my_functions.populate_mram_sg.restype= c_void_p
 
-        # input("export emb call start")
-        # Profiling
-        start_timer = datetime.datetime.now()
+        # print("export emb call start")
+        # # Profiling
+        # start_timer = datetime.datetime.now()
         
-        emb_ptr_arr = []
-        row_lens = np.array(len(emb_l), dtype=np.uint32)
-        col_lens = np.array(len(emb_l), dtype=np.uint32)
+        emb_ptr_arr = np.empty(len(emb_l), dtype=np.uint64)
+        row_lens = np.empty(len(emb_l), dtype=np.uint32)
+        col_lens = np.empty(len(emb_l), dtype=np.uint32)
+        ref_save = []
+
         for k in range(len(emb_l)):
-            tmp_emb = np.rint(list(emb_l[k].parameters())[0].detach().numpy() * (10 ** 9)).astype(int)
-            tmp_emb = np.transpose(tmp_emb)
-            tmp_emb = np.ascontiguousarray(tmp_emb)
-            
             # Should be same across single table
             row_lens[k] = len(list(emb_l[k].parameters())[0])
             col_lens[k] = len(list(emb_l[k].parameters())[0][0])
 
-            # process pointers for accessing emb_data
-            tmp_ptr = []
-            for i in range(col_lens[k]):
-                ptr = (c_int32 * (len(tmp_emb[i])))(*(tmp_emb[i]))      # Changed "C_int32" to lower case, unsure effect
-                tmp_ptr.append(addressof(ptr))
-            table_ptr = (c_uint64 * len(tmp_ptr))(*tmp_ptr)
-            emb_ptr_arr.append(addressof(table_ptr))
+            tmp_emb = np.rint(list(emb_l[k].parameters())[0].detach().numpy() * (10 ** 9))
+            tmp_emb = np.transpose(tmp_emb)
+            tmp_emb = np.ascontiguousarray(tmp_emb, dtype=np.int32)
+            ref_save.append(tmp_emb)
+
+            # DEBUG
+            # if k == 0:
+            #     print("EXPORT-PY VAL CHK: emb_tables[0][0][0] = " + str(tmp_emb[0][0]) + \
+            #             ", emb_tables[0][" + str(col_lens[k]-1) + "][" + str(row_lens[k]-1) + "] = " + \
+            #             str(tmp_emb[col_lens[k]-1][row_lens[k]-1]))
+            # elif k == len(emb_l) - 1:
+            #     print("EXPORT-PY VAL CHK: emb_tables[" + str(len(emb_l)-1) + "][0][0] = " + str(tmp_emb[0][0]) + \
+            #     ", emb_tables[" + str(len(emb_l)-1) + "][" + str(col_lens[k]-1) + "][" + str(row_lens[k]-1) + "] = " + str(tmp_emb[col_lens[k]-1][row_lens[k]-1]))
+
+            emb_ptr_arr[k] = tmp_emb.ctypes.data
             
             # # Old - Pre-scatter-gather implementation
             # global dpu_set_ptr
@@ -349,22 +368,28 @@ class DLRM_Net(nn.Module):
                 
             # # OLD: Optimized-per-table
             # data_pointer=(c_int32*(len(emb_data)))(*emb_data)
+
+        # print("Python EMB Pointers")
+        # for i in range(len(emb_ptr_arr)):
+        #     print(i, emb_ptr_arr[i], ctypes.cast(emb_ptr_arr[i], ctypes.py_object).value)
             
         # PIM TODO: Test
         emb_ptr = (c_uint64 * len(emb_ptr_arr))(*emb_ptr_arr)
-        row_lens_c = row_lens.data_as(ctypes.POINTER(ctypes.c_uint32 * len(emb_l))).contents
-        col_lens_c = col_lens.data_as(ctypes.POINTER(ctypes.c_uint32 * len(emb_l))).contents
+        row_lens_c = (c_uint32 * len(row_lens))(*row_lens)
+        global col_lens_c
+        col_lens_c = (c_uint32 * len(col_lens))(*col_lens)
+
         runtimes = pointer(DpuRuntimeTotals())
         global dpu_set_ptr         
-        dpu_set_ptr=my_functions.populate_mram_sg(
+        dpu_set_ptr = my_functions.populate_mram_sg(
             len(emb_l), 
-            addressof(row_lens_c), 
-            addressof(col_lens_c), 
-            addressof(emb_ptr),
+            row_lens_c, 
+            col_lens_c, 
+            emb_ptr,
             runtimes)
 
-        end_timer = datetime.datetime.now()
-        print("Python profiling: Time for populate_mram = ", (end_timer - start_timer).seconds, " s")
+        # end_timer = datetime.datetime.now()
+        # print("Python profiling: Time for populate_mram = ", (end_timer - start_timer).seconds, " s")
         return
     # dpu
 
@@ -493,22 +518,6 @@ class DLRM_Net(nn.Module):
                 )
                 self.local_emb_slice = ext_dist.get_my_slice(n_emb)
                 self.local_emb_indices = list(range(n_emb))[self.local_emb_slice]
-
-            # create result Tensors location
-            # PIM: Profiling
-            start_timer = datetime.datetime.now()
-            global final_results_tensor_array
-            global lookup_results_ptr_c
-            global lookup_results_ptr
-            final_results_tensor_array = []
-            lookup_results_ptr = []
-            for i in range(int(NR_TABLES)):
-                final_results_tensor_array.append(torch.from_numpy(np.zeros((args.mini_batch_size, self.m_spa), dtype=np.float32)))
-                np.ascontiguousarray(final_results_tensor_array[i].numpy(), dtype=np.float32)
-                lookup_results_ptr.append(final_results_tensor_array[i].numpy().ctypes.data)
-            lookup_results_ptr_c =  (c_uint64 * len(lookup_results_ptr))(*lookup_results_ptr)
-            end_timer = datetime.datetime.now()
-            print("Python profiling: Time for final_results_tensor_array creation = ", (end_timer - start_timer).microseconds, " μs, NR_TABLES = ", int(NR_TABLES))
             
             # create operators
             if ndevices <= 1:
@@ -541,6 +550,23 @@ class DLRM_Net(nn.Module):
                 sys.exit(
                     "ERROR: --loss-function=" + self.loss_function + " is not supported"
                 )
+            
+            # # create result Tensors location
+            # # PIM: Profiling
+            # start_timer = datetime.datetime.now()
+            # global final_results_tensor_array
+            # global lookup_results_ptr_c
+            # global lookup_results_ptr
+            # final_results_tensor_array = []
+            # lookup_results_ptr = []
+            # for i in range(len(self.emb_l)):
+            #     final_results_tensor_array.append(torch.from_numpy(np.zeros((nbatches, self.m_spa), dtype=np.float32)))
+            #     np.ascontiguousarray(final_results_tensor_array[i].numpy(), dtype=np.float32)
+            #     lookup_results_ptr.append(final_results_tensor_array[i].numpy().ctypes.data)
+            # lookup_results_ptr_c =  (c_uint64 * len(lookup_results_ptr))(*lookup_results_ptr)
+            # end_timer = datetime.datetime.now()
+            # print("MLPERF CHECK - final_results arr CREATED")
+            # print("Python profiling: Time for final_results_tensor_array creation = ", (end_timer - start_timer).microseconds, " μs, NR_TABLES = ", len(self.emb_l))
 
     def apply_mlp(self, x, layers):
         # approach 1: use ModuleList
@@ -550,8 +576,9 @@ class DLRM_Net(nn.Module):
         # approach 2: use Sequential container to wrap all layers
         return layers(x)
     
-    @emb_timer
-    def apply_emb(self, lS_o, lS_i, emb_l, v_W_l):
+    # @emb_timer
+    # def apply_emb(self, lS_o, lS_i, emb_l, v_W_l, ):
+    def apply_emb(self, lS_o, lS_i, emb_l, ind_ptr, off_ptr, ind_len_ptr, off_len_ptr):
         # WARNING: notice that we are processing the batch at once. We implicitly
         # assume that the data is laid out such that:
         # 1. each embedding is indexed with a group of sparse indices,
@@ -561,37 +588,36 @@ class DLRM_Net(nn.Module):
 
         # Profiling
         # start_timer = datetime.datetime.now()
-        
+        # print("apply emb call start")
         print_lat = 0
         cycle_count()
-        if cycle_count.counter > 25:
-            print_lat = 0
-            start_timer = datetime.datetime.now()
-        else:
-            input("ready")
+        # if cycle_count.counter > 25:
+        print_lat = 0
+        # start_timer = datetime.datetime.now()
+        # else:     
+            # input("ready")
         
-        # TODO: Add array holding #col and #row for each table, should create at inference() line 1041
-
         emb_l[0](
                 lS_i[0],        # No longer used
                 lS_o[0],        # No longer used
                 per_sample_weights=None,
                 num_of_tables=len(emb_l),
-                dpu_set_ptr=int(dpu_set_ptr),
+                dpu_set_ptr=int(dpu_set_ptr),       # stored from export_emb
                 use_dpu=True,
-                final_results_ptr=addressof(lookup_results_ptr_c),
-                indices_ptr=addressof(ind_pointers_c),
-                offsets_ptr=addressof(off_pointers_c),
-                indices_len=addressof(ind_len_c),       #new
-                offsets_len=addressof(off_len_c),       #new
-                latency_print=print_lat
+                final_results_ptr=addressof(lookup_results_ptr_c),  # stored from DLRM NEW INIT
+                indices_ptr=addressof(ind_ptr),
+                offsets_ptr=addressof(off_ptr),
+                indices_len_ptr=addressof(ind_len_ptr),
+                offsets_len_ptr=addressof(off_len_ptr),
+                latency_print=print_lat,
+                nr_cols_ptr=addressof(col_lens_c)
             )       # TODO: Add args for per table #row and #cols
         
-        if cycle_count.counter <= 25:
-            input("done!")
-        else:
-            done_timer = datetime.datetime.now()
-            print((done_timer - start_timer).microseconds)
+        # if cycle_count.counter <= 25:
+        #     input("done!")
+        # else:
+        # done_timer = datetime.datetime.now()
+        # print("Lookup time: " + str((done_timer - start_timer).microseconds))
             
         # done_timer = datetime.datetime.now()
         
@@ -775,7 +801,7 @@ class DLRM_Net(nn.Module):
 
         return R
 
-    @fwd_timer    
+    # @fwd_timer    
     def forward(self, dense_x, lS_o, lS_i):
         if ext_dist.my_size > 1:
             # multi-node multi-device run
@@ -854,7 +880,88 @@ class DLRM_Net(nn.Module):
         # print(x.detach().cpu().numpy())
 
         # process sparse features(using embeddings), resulting in a list of row vectors
-        ly = self.apply_emb(lS_o, lS_i, self.emb_l, self.v_W_l)
+
+        # Pre-proc pointers temp
+        # global ind_arr_store, off_arr_store, ind_pointers, off_pointers, ind_arr_len, off_arr_len
+
+        ind_arr_store = []
+        off_arr_store = []
+        ind_arr_len = np.empty(len(lS_i), dtype=np.uint32)
+        off_arr_len = np.empty(len(lS_i), dtype=np.uint32)
+        ind_pointers = []
+        off_pointers = []
+        
+        debug_id = 0
+        for k, ind in enumerate(lS_i):
+            off = lS_o[k]
+
+            inds = list(ind.tolist())
+            ind_arr = (c_uint32 * len(inds))(*inds)
+            ind_arr_store.append(ind_arr)
+            ind_arr_len[k] = len(inds)
+            # if k == 0:
+            print("#INDS: ", ind_arr_len[k], "table_id = ", k, "id ", debug_id)
+            np.savetxt(os.path.expanduser("~/inds" + str(k) + "-" + str(debug_id) + ".csv"), inds, delimiter="\n")
+
+            offs = list(off.tolist())
+            off_arr = (c_uint32 * len(offs))(*offs)
+            off_arr_store.append(off_arr)
+            off_arr_len[k] = len(offs)
+            # if k == 0:
+            print("#OFFS: ", off_arr_len[k], "table_id = ", k, "id ", debug_id)
+            np.savetxt(os.path.expanduser("~/offs" + str(k) + "-" + str(debug_id) + ".csv"), offs, delimiter="\n")
+
+            ind_pointers.append(addressof(ind_arr_store[k]))
+            off_pointers.append(addressof(off_arr_store[k]))
+            debug_id = debug_id + 1
+        # global ind_pointers_c
+        # global off_pointers_c
+        # global ind_len_c
+        # global off_len_c
+        ind_pointers_c = (c_uint64 * len(ind_pointers))(*ind_pointers)
+        off_pointers_c = (c_uint64 * len(off_pointers))(*off_pointers)
+        ind_lens_c = (c_uint32 * len(ind_arr_len))(*ind_arr_len)
+        off_lens_c = (c_uint32 * len(off_arr_len))(*off_arr_len)
+
+        # # Check vals:
+        # print("CHECK VALS - in seq forward")
+        # print("LEN OF X: " + str(len(x)))
+        # # Profiling
+        # start_timer = datetime.datetime.now()
+
+        # DEBUG CHK VALS
+        # for k, ind in enumerate(lS_i):
+            # print(ind.tolist())
+            # print(lS_o[k].tolist())
+            # if k == 0:
+            #     print("PY-SEQFOR CHK: ind[0][0] ", ind.tolist()[0], "ind[0][last] ", ind.tolist()[len(ind.tolist()) - 1])
+            #     print("PY-SEQFOR CHK: off[0][0] ", lS_o[k].tolist()[0], "off[0][last] ", lS_o[k].tolist()[len(lS_o[k].tolist()) - 1])
+            # elif k == len(lS_i) - 1:
+            #     print("PY-SEQFOR CHK: ind[last][0] ", ind.tolist()[0], "ind[last][last] ", ind.tolist()[len(ind.tolist()) - 1])
+            #     print("PY-SEQFOR CHK: off[last][0] ", lS_o[k].tolist()[0], "off[last][last] ", lS_o[k].tolist()[len(lS_o[k].tolist()) - 1])
+
+        # end_timer = datetime.datetime.now()
+        # print("Python profiling: Time for query ptr extraction = ", (end_timer - start_timer).seconds, " s")
+        
+        # create result Tensors location
+        # PIM: Profiling
+        # start_timer = datetime.datetime.now()
+        global final_results_tensor_array
+        global lookup_results_ptr_c
+        global lookup_results_ptr
+        final_results_tensor_array = []
+        lookup_results_ptr = []
+        for i in range(len(self.emb_l)):
+            final_results_tensor_array.append(torch.from_numpy(np.zeros((off_arr_len[i], self.m_spa), dtype=np.float32)))
+            np.ascontiguousarray(final_results_tensor_array[i].numpy(), dtype=np.float32)
+            lookup_results_ptr.append(final_results_tensor_array[i].numpy().ctypes.data)
+        lookup_results_ptr_c =  (c_uint64 * len(lookup_results_ptr))(*lookup_results_ptr)
+        # end_timer = datetime.datetime.now()
+        # print("MLPERF CHECK - final_results arr CREATED, len = " + str(off_arr_len[0]))
+        # print("Python profiling: Time for final_results_tensor_array creation = ", (end_timer - start_timer).microseconds, " μs, NR_TABLES = ", len(self.emb_l))
+        
+
+        ly = self.apply_emb(lS_i, lS_o, self.emb_l, ind_pointers_c, off_pointers_c, ind_lens_c, off_lens_c)
         # for y in ly:
             # print(y.detach().cpu().numpy())
             # y.detach().cpu().numpy()
@@ -1044,40 +1151,6 @@ def inference(
         X_test, lS_o_test, lS_i_test, T_test, W_test, CBPP_test = unpack_batch(
             testBatch
         )
-
-        # Pre-proc pointers temp
-        global ind_arr_store, off_arr_store, ind_pointers, off_pointers, ind_arr_len, off_arr_len
-        # global cycle_count
-        # cycle_count = 0
-        ind_arr_store = []
-        off_arr_store = []
-        ind_arr_len = np.array(len(lS_i_test), dtype=np.uint32)
-        off_arr_len = np.array(len(lS_i_test), dtype=np.uint32)
-        ind_pointers = []
-        off_pointers = []
-        for k, ind in enumerate(lS_i_test):
-            off = lS_o_test[k]
-
-            inds = list(ind.tolist())
-            ind_arr = (c_uint32 * len(inds))(*inds)
-            ind_arr_store.append(ind_arr)
-            ind_arr_len[k] = len(inds)
-
-            offs = list(off.tolist())
-            off_arr = (c_uint32 * len(offs))(*offs)
-            off_arr_store.append(off_arr)
-            off_arr_len[k] = len(offs)
-
-            ind_pointers.append(addressof(ind_arr_store[k]))
-            off_pointers.append(addressof(off_arr_store[k]))
-        global ind_pointers_c
-        global off_pointers_c
-        global ind_len_c
-        global off_len_c
-        ind_pointers_c = (c_uint64 * len(ind_pointers))(*ind_pointers)
-        off_pointers_c = (c_uint64 * len(off_pointers))(*off_pointers)
-        ind_len_c = ind_arr_len.data_as(ctypes.POINTER(ctypes.c_uint32 * len(lS_i_test))).contents
-        off_len_c = off_arr_len.data_as(ctypes.POINTER(ctypes.c_uint32 * len(lS_i_test))).contents
 
         # Skip the batch if batch size not multiple of total ranks
         if ext_dist.my_size > 1 and X_test.size(0) % ext_dist.my_size != 0:
